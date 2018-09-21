@@ -23,4 +23,4 @@ class BaseData:
         raise NotImplementedError
 
 def entry_point():
-    print('SUCCEED!')
+    print('SUCCEED!TESING')
