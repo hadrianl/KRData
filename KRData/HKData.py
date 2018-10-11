@@ -10,6 +10,7 @@ from dateutil import parser
 import datetime as dt
 from . import BaseData
 from .util import _check_ktype, CODE_SUFFIX
+import pymongo as pmg
 
 class HKFuture(BaseData):
     def __init__(self, host='192.168.2.226', port=27017, db='HKFuture'):
@@ -69,6 +70,100 @@ class HKFuture(BaseData):
                            'close': 'last',
                            'volume': 'sum',
                                }
+
+        resampled_df = df.resample(ktype).apply(apply_func_dict)
+        resampled_df.dropna(how='all', inplace=True)
+        if fields is None:
+            fields = [field for field in resampled_df.columns]
+        else:
+            fields = [field for field in fields if field in resampled_df.columns]
+
+        return resampled_df.loc[:, fields]
+
+    def get_available_contract(self, underlying:str, date):
+        if isinstance(date, str):
+            _date = parser.parse(date).replace(hour=0, minute=0, second=0)
+        elif isinstance(date, dt.datetime):
+            _date = date.replace(hour=0, minute=0, second=0)
+        else:
+            raise ValueError('请输入str或者datetime类型')
+
+        underlying = underlying.upper()
+
+        contract_info = pd.DataFrame([ci for ci in self._db.get_collection('future_contract_info').find({'CLASS_CODE': underlying, 'DATE': _date})])
+
+        return contract_info
+
+    def get_main_contract_bars(self, underlying, fields=None, start=None, end=None, ktype='1m'):
+        if isinstance(start, str):
+            start = parser.parse(start)
+
+        if isinstance(end, str):
+            end = parser.parse(end)
+
+        ktype = _check_ktype(ktype)
+        _fields = ['datetime', 'code', 'open', 'high', 'low', 'close', 'volume', 'date_stamp']
+        _d = start.replace(hour=0, minute=0, second=0)
+        _end = end.replace(hour=0, minute=0, second=0)
+        data = []
+        while _d <= _end:
+            _c_info = self.get_available_contract(underlying, _d)
+            if _c_info.empty:
+                _d += dt.timedelta(days=1)
+                continue
+
+            if _c_info.loc[0, 'EXPIRY_DATE'] - _d > dt.timedelta(days=2):
+                code = _c_info.loc[0, 'CODE']
+            else:
+                code = _c_info.loc[1, 'CODE']
+
+            d = [ret for ret in self._col.find(
+                {'code': code, 'datetime': {'$gte': _d.replace(hour=9, minute=14, second=0), '$lt': _d.replace(hour=17, minute=0, second=0)}}, _fields, sort=[('datetime', pmg.DESCENDING)])]
+
+            _bar_before_d = self._col.find_one({'code': code,  'datetime': {'$lt': _d.replace(hour=9, minute=14, second=0)}},
+                                              _fields,
+                                                sort=[('datetime', pmg.DESCENDING)])
+
+            if _bar_before_d is not None:
+                if dt.time(17, 14) < _bar_before_d['datetime'].time() <= dt.time(23, 59):
+                    _d_aht = self._col.find({'code': code, 'type': '1min',
+                                              'datetime': {'$gte': dt.datetime.fromtimestamp(
+                                                  _bar_before_d['date_stamp']) + dt.timedelta(hours=17,
+                                                                                                    minutes=14),
+                                                           '$lte': dt.datetime.fromtimestamp(
+                                                               _bar_before_d['date_stamp']) + dt.timedelta(
+                                                               hours=23, minutes=59)}},
+                                            _fields,
+                                             sort=[('datetime', pmg.DESCENDING)])
+                    d_aht = [i for i in _d_aht]
+                    d = d + d_aht
+                elif dt.time(0, 0) < _bar_before_d['datetime'].time() <= dt.time(2, 0):
+                    _d_aht = self._col.find({'code': code, 'type': '1min',
+                                              'datetime': {'$gte': dt.datetime.fromtimestamp(
+                                                  _bar_before_d['date_stamp']) - dt.timedelta(hours=6,
+                                                                                                    minutes=46),
+                                                           '$lte': dt.datetime.fromtimestamp(
+                                                               _bar_before_d['date_stamp']) + dt.timedelta(
+                                                               hours=2, minutes=0)}},
+                                            _fields,
+                                             sort=[('datetime', pmg.DESCENDING)])
+                    d_aht = [i for i in _d_aht]
+                    d = d + d_aht
+
+            d.reverse()
+            data.extend(d)
+            _d += dt.timedelta(days=1)
+
+        df = pd.DataFrame(data, columns=_fields)
+        df.set_index('datetime', drop=False, inplace=True)
+        apply_func_dict = {'datetime': 'last',
+                           'code': 'first',
+                           'open': 'first',
+                           'high': 'max',
+                           'low': 'min',
+                           'close': 'last',
+                           'volume': 'sum',
+                           }
 
         resampled_df = df.resample(ktype).apply(apply_func_dict)
         resampled_df.dropna(how='all', inplace=True)
