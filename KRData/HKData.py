@@ -12,13 +12,14 @@ from . import BaseData
 from .util import _check_ktype, CODE_SUFFIX
 import pymongo as pmg
 
+
 class HKFuture(BaseData):
     def __init__(self, host='192.168.2.226', port=27017, db='HKFuture'):
         super(HKFuture, self).__init__(host, port, db)
 
     def get_bars(self, code, fields=None, start=None, end=None, ktype='1m'):
         '''
-        获取k线数据，历史k线从数据库拿，当日从tdx服务器提取,按天提取数据
+        获取k线数据，按天提取
         :param code: 代码
         :param start: None为从最开始查询
         :param end: None为查询到最新的bar
@@ -31,56 +32,24 @@ class HKFuture(BaseData):
         if isinstance(end, str):
             end = parser.parse(end)
 
-        end = end + dt.timedelta(days=1) if end is not None else end
+        trade_date = self.get_trading_dates(start, end, code=code)
 
         ktype = _check_ktype(ktype)
-        _fields = ['datetime', 'code', 'open', 'high', 'low', 'close', 'volume']
-        if len(code) == 3:
-            history_bar = []
-            con = str(start.year)[-2:] + (str(start.month) if start.month > 9 else '0' + str(start.month))
-            _start = start
-            for _s in CODE_SUFFIX:
-                if _s >= con:
-                    expiry = self._db.future_contract_info.find_one({'CODE': code + _s})['EXPIRY_DATE']
-                    if expiry <= start:
-                        continue
+        _fields = ['datetime', 'code', 'open', 'high', 'low', 'close', 'volume', 'date_stamp']
 
-                    if expiry <= end:
-                        print(code+_s, _start, expiry)
-                        cursor = self._col.find({'code': code + _s, 'datetime': {'$gte': _start, '$lt': expiry}})
-                        history_bar.extend([d for d in cursor])
-                        _start = expiry
-                    else:
-                        print(code + _s, _start, expiry)
-                        expiry = end
-                        cursor = self._col.find({'code': code + _s, 'datetime': {'$gte': _start, '$lt': expiry}})
-                        history_bar.extend([d for d in cursor])
-                        break
-        else:
-            cursor = self._col.find({'code': code, 'datetime':{'$gte': start if start is not None else dt.datetime(1970, 1, 1),
-                                                               '$lt': end if end is not None else dt.datetime(2999, 1, 1)}}, _fields)
-            history_bar = [d for d in cursor]   # 从本地服务器获取历史数据
-        df = pd.DataFrame(history_bar, columns=_fields)
-        df.set_index('datetime', drop=False, inplace=True)
-        apply_func_dict = {'datetime': 'last',
-                           'code': 'first',
-                           'open': 'first',
-                           'high': 'max',
-                           'low': 'min',
-                           'close': 'last',
-                           'volume': 'sum',
-                               }
+        first = self.__get_whole_date_trade(code, trade_date[0])
 
-        resampled_df = df.resample(ktype).apply(apply_func_dict)
-        resampled_df.dropna(how='all', inplace=True)
-        if fields is None:
-            fields = [field for field in resampled_df.columns]
-        else:
-            fields = [field for field in fields if field in resampled_df.columns]
+        rest_cursor = self._col.find({'code': code, 'datetime':{'$gte': trade_date[0].replace(hour=17, minute=0, second=0),
+                                                         '$lt': trade_date[-1].replace(hour=17, minute=0, second=0)}}, _fields)
 
-        return resampled_df.loc[:, fields]
+        rest = [t for t in rest_cursor]
+        history_bar = first + rest   # 从本地服务器获取历史数据
 
-    def get_available_contract(self, underlying:str, date):
+        df = self.__format_data(history_bar, fields, ktype)
+
+        return df
+
+    def get_available_contracts(self, underlying:str, date):
         if isinstance(date, str):
             _date = parser.parse(date).replace(hour=0, minute=0, second=0)
         elif isinstance(date, dt.datetime):
@@ -94,6 +63,43 @@ class HKFuture(BaseData):
 
         return contract_info
 
+    def get_trading_dates(self, start, end, code=None, underlying=None):
+        """
+        填写code或者underlying参数，优先使用code
+        :param start:
+        :param end:
+        :param code:
+        :param underlying:
+        :return:
+        """
+        if isinstance(start, str):
+            start = parser.parse(start)
+
+        if isinstance(end, str):
+            end = parser.parse(end)
+
+        start = start.replace(hour=0, minute=0, second=0) if start is not None else dt.datetime(1970, 1, 1)
+        end = end.replace(hour=0, minute=0, second=0) if end is not None else dt.datetime(2050, 1, 1)
+
+        if isinstance(code, str):
+            trade_date = list(
+                set(td['DATE'] for td in self._db.get_collection('future_contract_info').find({'CODE': code,
+                                                                                               'DATE': {'$gte': start,
+                                                                                                        '$lte': end}},
+                                                                                              ['DATE'])))
+            trade_date.sort()
+            return trade_date
+        elif isinstance(underlying, str):
+            trade_date = list(
+                set(td['DATE'] for td in self._db.get_collection('future_contract_info').find({'CLASS_CODE': underlying,
+                                                                                               'DATE': {'$gte': start,
+                                                                                                        '$lte': end}},
+                                                                                              ['DATE'])))
+            trade_date.sort()
+            return trade_date
+        else:
+            raise Exception('请输入正确的code或者underlying')
+
     def get_main_contract_bars(self, underlying, fields=None, start=None, end=None, ktype='1m'):
         if isinstance(start, str):
             start = parser.parse(start)
@@ -101,60 +107,102 @@ class HKFuture(BaseData):
         if isinstance(end, str):
             end = parser.parse(end)
 
+        trade_date = self.get_trading_dates(start, end, underlying=underlying)
         ktype = _check_ktype(ktype)
-        _fields = ['datetime', 'code', 'open', 'high', 'low', 'close', 'volume', 'date_stamp']
-        _d = start.replace(hour=0, minute=0, second=0)
-        _end = end.replace(hour=0, minute=0, second=0)
-        data = []
-        while _d <= _end:
-            _c_info = self.get_available_contract(underlying, _d)
-            if _c_info.empty:
-                _d += dt.timedelta(days=1)
-                continue
 
-            if _c_info.loc[0, 'EXPIRY_DATE'] - _d > dt.timedelta(days=2):
+        data = []
+        for i, td in enumerate(trade_date):
+            _c_info = self.get_available_contracts(underlying, td)
+
+            if _c_info.loc[0, 'EXPIRY_DATE'] not in [trade_date[i:i+2]]:
                 code = _c_info.loc[0, 'CODE']
             else:
                 code = _c_info.loc[1, 'CODE']
 
-            d = [ret for ret in self._col.find(
-                {'code': code, 'datetime': {'$gte': _d.replace(hour=9, minute=14, second=0), '$lt': _d.replace(hour=17, minute=0, second=0)}}, _fields, sort=[('datetime', pmg.DESCENDING)])]
+            data.extend(self.__get_whole_date_trade(code, td))
 
-            _bar_before_d = self._col.find_one({'code': code,  'datetime': {'$lt': _d.replace(hour=9, minute=14, second=0)}},
-                                              _fields,
-                                                sort=[('datetime', pmg.DESCENDING)])
+        df = self.__format_data(data, fields, ktype)
 
-            if _bar_before_d is not None:
-                if dt.time(17, 14) < _bar_before_d['datetime'].time() <= dt.time(23, 59):
-                    _d_aht = self._col.find({'code': code, 'type': '1min',
-                                              'datetime': {'$gte': dt.datetime.fromtimestamp(
-                                                  _bar_before_d['date_stamp']) + dt.timedelta(hours=17,
-                                                                                                    minutes=14),
-                                                           '$lte': dt.datetime.fromtimestamp(
-                                                               _bar_before_d['date_stamp']) + dt.timedelta(
-                                                               hours=23, minutes=59)}},
-                                            _fields,
-                                             sort=[('datetime', pmg.DESCENDING)])
-                    d_aht = [i for i in _d_aht]
-                    d = d + d_aht
-                elif dt.time(0, 0) < _bar_before_d['datetime'].time() <= dt.time(2, 0):
-                    _d_aht = self._col.find({'code': code, 'type': '1min',
-                                              'datetime': {'$gte': dt.datetime.fromtimestamp(
-                                                  _bar_before_d['date_stamp']) - dt.timedelta(hours=6,
-                                                                                                    minutes=46),
-                                                           '$lte': dt.datetime.fromtimestamp(
-                                                               _bar_before_d['date_stamp']) + dt.timedelta(
-                                                               hours=2, minutes=0)}},
-                                            _fields,
-                                             sort=[('datetime', pmg.DESCENDING)])
-                    d_aht = [i for i in _d_aht]
-                    d = d + d_aht
+        return df
 
-            d.reverse()
-            data.extend(d)
-            _d += dt.timedelta(days=1)
+    @staticmethod
+    def draw_klines(df:pd.DataFrame):
+        import matplotlib.pyplot as plt
+        import matplotlib.finance as mpf
+        from matplotlib import ticker
+        import matplotlib.dates as mdates
+        columns = ['datetime', 'open', 'close', 'high', 'low', 'volume']
+        if not set(df.columns).issuperset(columns):
+            raise Exception(f'请包含{columns}字段')
 
-        df = pd.DataFrame(data, columns=_fields)
+        data = df.loc[:, columns]
+
+        data_mat = data.as_matrix().T
+
+        xdate = data['datetime'].tolist()
+
+        def mydate(x, pos):
+            try:
+                return xdate[int(x)]
+            except IndexError:
+                return ''
+
+
+        fig, ax1,  = plt.subplots(figsize=(1200 / 72, 480 / 72))
+        plt.title('KLine', fontsize='large',fontweight = 'bold')
+        mpf.candlestick2_ochl(ax1, data_mat[1], data_mat[2], data_mat[3], data_mat[4], colordown='#53c156', colorup='#ff1717', width=0.3, alpha=1)
+        ax1.grid(True)
+        ax1.xaxis.set_major_formatter(ticker.FuncFormatter(mydate))
+        ax1.xaxis.set_major_locator(mdates.HourLocator())
+        ax1.xaxis.set_major_locator(mdates.MinuteLocator(byminute=[0, 15, 30, 45],
+                                                        interval=1))
+        ax1.xaxis.set_major_locator(ticker.MaxNLocator(8))
+
+
+
+
+    def __get_whole_date_trade(self, code, trade_date):  # 获取某一天夜盘+早盘的全部数据
+        _fields = ['datetime', 'code', 'open', 'high', 'low', 'close', 'volume', 'date_stamp']
+        td = trade_date
+        d = [ret for ret in self._col.find(
+            {'code': code, 'datetime': {'$gte': td.replace(hour=9, minute=14, second=0),
+                                        '$lt': td.replace(hour=17, minute=0, second=0)}}, _fields,
+            sort=[('datetime', pmg.DESCENDING)])]
+
+        _bar_before_d = self._col.find_one({'code': code, 'datetime': {'$lt': td.replace(hour=9, minute=14, second=0)}},
+                                           _fields,
+                                           sort=[('datetime', pmg.DESCENDING)])
+
+        if _bar_before_d is not None:
+            if dt.time(17, 14) < _bar_before_d['datetime'].time() <= dt.time(23, 59):
+                _d_aht = self._col.find({'code': code, 'type': '1min',
+                                         'datetime': {'$gte': dt.datetime.fromtimestamp(
+                                             _bar_before_d['date_stamp']) + dt.timedelta(hours=17,
+                                                                                         minutes=14),
+                                                      '$lte': dt.datetime.fromtimestamp(
+                                                          _bar_before_d['date_stamp']) + dt.timedelta(
+                                                          hours=23, minutes=59)}},
+                                        _fields,
+                                        sort=[('datetime', pmg.DESCENDING)])
+                d_aht = [i for i in _d_aht]
+                d = d + d_aht
+            elif dt.time(0, 0) < _bar_before_d['datetime'].time() <= dt.time(2, 0):
+                _d_aht = self._col.find({'code': code, 'type': '1min',
+                                         'datetime': {'$gte': dt.datetime.fromtimestamp(
+                                             _bar_before_d['date_stamp']) - dt.timedelta(hours=6,
+                                                                                         minutes=46),
+                                                      '$lte': dt.datetime.fromtimestamp(
+                                                          _bar_before_d['date_stamp']) + dt.timedelta(
+                                                          hours=2, minutes=0)}},
+                                        _fields,
+                                        sort=[('datetime', pmg.DESCENDING)])
+                d_aht = [i for i in _d_aht]
+                d = d + d_aht
+        d.reverse()
+        return d
+
+    def __format_data(self, data, fields, ktype):  # 格式整理
+        df = pd.DataFrame(data, columns=['datetime', 'code', 'open', 'high', 'low', 'close', 'volume', 'date_stamp'])
         df.set_index('datetime', drop=False, inplace=True)
         apply_func_dict = {'datetime': 'last',
                            'code': 'first',
