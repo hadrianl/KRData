@@ -32,20 +32,16 @@ class HKFuture(BaseData):
         if isinstance(end, str):
             end = parser.parse(end)
 
+        code = code.upper()
         trade_date = self.get_trading_dates(start, end, code=code)
 
         ktype = _check_ktype(ktype)
-        _fields = ['datetime', 'code', 'open', 'high', 'low', 'close', 'volume', 'date_stamp']
 
-        first = self.__get_whole_date_trade(code, trade_date[0])
+        data = []
+        for td in trade_date:
+            data.extend(self.__get_whole_date_trade(code, td))
 
-        rest_cursor = self._col.find({'code': code, 'datetime':{'$gte': trade_date[0].replace(hour=17, minute=0, second=0),
-                                                         '$lt': trade_date[-1].replace(hour=17, minute=0, second=0)}}, _fields)
-
-        rest = [t for t in rest_cursor]
-        history_bar = first + rest   # 从本地服务器获取历史数据
-
-        df = self.__format_data(history_bar, fields, ktype)
+        df = self.__format_data(data, fields, ktype)
 
         return df
 
@@ -107,6 +103,7 @@ class HKFuture(BaseData):
         if isinstance(end, str):
             end = parser.parse(end)
 
+        underlying = underlying.upper()
         trade_date = self.get_trading_dates(start, end, underlying=underlying)
         ktype = _check_ktype(ktype)
 
@@ -158,9 +155,6 @@ class HKFuture(BaseData):
                                                         interval=1))
         ax1.xaxis.set_major_locator(ticker.MaxNLocator(8))
 
-
-
-
     def __get_whole_date_trade(self, code, trade_date):  # 获取某一天夜盘+早盘的全部数据
         _fields = ['datetime', 'code', 'open', 'high', 'low', 'close', 'volume', 'date_stamp']
         td = trade_date
@@ -199,10 +193,12 @@ class HKFuture(BaseData):
                 d_aht = [i for i in _d_aht]
                 d = d + d_aht
         d.reverse()
+        for _d in d:
+            _d['trade_date'] = td
         return d
 
     def __format_data(self, data, fields, ktype):  # 格式整理
-        df = pd.DataFrame(data, columns=['datetime', 'code', 'open', 'high', 'low', 'close', 'volume', 'date_stamp'])
+        df = pd.DataFrame(data, columns=['datetime', 'code', 'open', 'high', 'low', 'close', 'volume', 'date_stamp', 'trade_date'])
         df.set_index('datetime', drop=False, inplace=True)
         apply_func_dict = {'datetime': 'last',
                            'code': 'first',
@@ -211,6 +207,7 @@ class HKFuture(BaseData):
                            'low': 'min',
                            'close': 'last',
                            'volume': 'sum',
+                           'trade_date': 'first'
                            }
 
         resampled_df = df.resample(ktype).apply(apply_func_dict)
