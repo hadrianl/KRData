@@ -5,8 +5,9 @@
 # @File    : setup
 
 from setuptools import setup, find_packages
+from KRData import __version__
 
-version = '1.3'
+version = __version__
 requires = ['pymongo']
 setup(name='KRData',
       version=version,

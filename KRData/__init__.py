@@ -6,6 +6,8 @@
 
 import pymongo as pmg
 
+__version__ = '1.4'
+
 
 class BaseData:
     def __init__(self, host, port, db):
@@ -23,4 +25,4 @@ class BaseData:
         raise NotImplementedError
 
 def entry_point():
-    print('SUCCEED!TESING')
+    print(f'SUCCEED!VERSION:{__version__}')
