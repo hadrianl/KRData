@@ -17,7 +17,7 @@ class HKFuture(BaseData):
     def __init__(self, host='192.168.2.226', port=27017, db='HKFuture'):
         super(HKFuture, self).__init__(host, port, db)
 
-    def get_bars(self, code, fields=None, start=None, end=None, ktype='1m'):
+    def get_bars(self, code, fields=None, start=None, end=None, bar_counts=None, ktype='1min'):
         '''
         获取k线数据，按天提取
         :param code: 代码
@@ -33,17 +33,14 @@ class HKFuture(BaseData):
             end = parser.parse(end)
 
         code = code.upper()
-        trade_date = self.get_trading_dates(start, end, code=code)
 
-        ktype = _check_ktype(ktype)
+        if bar_counts is not None and end is not None:
+            ret = self.__get_bars_by_count(code, end, bar_counts, ktype, fields)  # 根据查询数量来查询， 性能更优
+        else:
+            ret = self.__get_bars_by_daterange(code, start, end, ktype, fields)  # 根据日期范围来查询
 
-        data = []
-        for td in trade_date:
-            data.extend(self.__get_whole_date_trade(code, td))
+        return ret
 
-        df = self.__format_data(data, fields, ktype)
-
-        return df
 
     def get_available_contracts(self, underlying:str, date):
         if isinstance(date, str):
@@ -96,7 +93,7 @@ class HKFuture(BaseData):
         else:
             raise Exception('请输入正确的code或者underlying')
 
-    def get_main_contract_bars(self, underlying, fields=None, start=None, end=None, ktype='1m'):
+    def get_main_contract_bars(self, underlying, fields=None, start=None, end=None, ktype='1min'):
         if isinstance(start, str):
             start = parser.parse(start)
 
@@ -197,6 +194,34 @@ class HKFuture(BaseData):
             _d['trade_date'] = td
         return d
 
+    def __get_bars_by_count(self, code, current_dt, bar_counts, ktype, fields):
+        col = self._db.get_collection(f'future_{ktype}_')
+        data = [v for v in col.find({'code':code, 'datetime': {'$lte': current_dt}}, limit=bar_counts, sort=[(('datetime', pmg.DESCENDING))])]
+        data.reverse()
+        data = pd.DataFrame(data).set_index('datetime', drop=False)
+        if fields is None:
+            fields = ['datetime', 'code', 'open', 'high', 'low', 'close', 'volume', 'trade_date']
+
+        data = data.loc[:, fields]
+        return data
+
+    def __get_bars_by_daterange(self, code, start, end, ktype, fields):
+        trade_date = self.get_trading_dates(start, end, code=code)
+
+        ktype = _check_ktype(ktype)
+
+        data = []
+        for td in trade_date:
+            data.extend(self.__get_whole_date_trade(code, td))
+
+        if data == []:
+            df =  pd.DataFrame()
+        else:
+            df = self.__format_data(data, fields, ktype)
+
+        return df
+
+
     def __format_data(self, data, fields, ktype):  # 格式整理
         df = pd.DataFrame(data, columns=['datetime', 'code', 'open', 'high', 'low', 'close', 'volume', 'date_stamp', 'trade_date'])
         df.set_index('datetime', drop=False, inplace=True)
@@ -209,8 +234,10 @@ class HKFuture(BaseData):
                            'volume': 'sum',
                            'trade_date': 'first'
                            }
-
-        resampled_df = df.resample(ktype).apply(apply_func_dict)
+        if ktype != '1D':
+            resampled_df = df.resample(ktype).apply(apply_func_dict)
+        else:
+            resampled_df = df.resample(ktype, on='trade_date').apply(apply_func_dict)
         resampled_df.dropna(how='all', inplace=True)
         if fields is None:
             fields = [field for field in resampled_df.columns]
