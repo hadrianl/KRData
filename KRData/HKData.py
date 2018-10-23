@@ -14,8 +14,8 @@ import pymongo as pmg
 
 
 class HKFuture(BaseData):
-    def __init__(self, host='192.168.2.226', port=27017, db='HKFuture'):
-        super(HKFuture, self).__init__(host, port, db)
+    def __init__(self, user=None, pwd=None, host='192.168.2.226', port=27017, db='HKFuture'):
+        super(HKFuture, self).__init__(host, port, db, user=user, pwd=pwd )
 
     def get_bars(self, code, fields=None, start=None, end=None, bar_counts=None, ktype='1min'):
         '''

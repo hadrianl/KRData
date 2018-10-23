@@ -13,8 +13,8 @@ from . import BaseData
 from .util import _check_ktype
 
 class TdxFuture(BaseData):
-    def __init__(self, host='192.168.2.226', port=27017, db='Future'):
-        super(TdxFuture, self).__init__(host, port, db)
+    def __init__(self, user=None, pwd=None, host='192.168.2.226', port=27017, db='Future'):
+        super(TdxFuture, self).__init__(host, port, db, user=user, pwd=pwd )
 
     def get_all_codes(self):   # 获取本地合约列表
         code_list = self._col.distinct('code')

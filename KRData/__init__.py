@@ -6,14 +6,18 @@
 
 import pymongo as pmg
 
-__version__ = '1.5'
+__version__ = '1.6'
 
 
 class BaseData:
-    def __init__(self, host, port, db):
+    def __init__(self, host, port, db, user=None, pwd=None, ):
         self._mongodb_host = host
         self._mongodb_port = port
+        self._user = user
         self._conn = pmg.MongoClient(f'mongodb://{host}:{port}/')
+        if bool(user)&bool(pwd):
+            admin_db = self._conn.get_database('admin')
+            admin_db.authenticate(user, pwd)
         self._db = self._conn.get_database(db)
         self._col = self._db.get_collection('future_1min')
 
