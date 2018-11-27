@@ -33,8 +33,8 @@ class HKFuture(BaseData):
         if isinstance(end, str):
             end = parser.parse(end)
 
-        start = start.replace(hour=0, minute=0, second=0) if start is not None else dt.datetime(1970, 1, 1)
-        end = end.replace(hour=0, minute=0, second=0) if end is not None else dt.datetime(2050, 1, 1)
+        start = start if start is not None else dt.datetime(1970, 1, 1)
+        end = end if end is not None else dt.datetime(2050, 1, 1)
 
         code = code.upper()
 
