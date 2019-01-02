@@ -19,7 +19,7 @@ setup(name='KRData',
       zip_safe=False,
       entry_points={
           "console_scripts": [
-              "KRData = KRData.__init__:entry_point"
+              "KRData = KRData.__main__:cli"
           ]
       },
       classifiers=[
