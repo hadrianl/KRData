@@ -13,7 +13,7 @@ import click
 @click.help_option('-h', '--help')
 @click.option('--dbhost', default='192.168.2.226', help='数据库host')
 @click.option('--dbport', default=27017, help='数据库port')
-@click.option('--user',  prompt=True, help='数据库用户')
+@click.option('--user',  default='KRdata', help='数据库用户')
 @click.option('--password',  prompt=True, help='数据库密码')
 @click.option('--ibhost', default='127.0.0.1', help='IB Host')
 @click.option('--ibport', default=7496, help='IB Port')
