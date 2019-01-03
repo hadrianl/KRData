@@ -49,7 +49,7 @@ def save_ib_trade(dbhost, dbport, user, password, ibhost, ibport, alive):
 
 
     ib.execDetailsEvent += save_trade
-    ib.connect(ibhost, ibport, clientId=0, timeout=20)
+    ib.connect(ibhost, ibport, clientId=10, timeout=20)
     print('连接成功')
     fills = ib.fills()
     for f in fills:
