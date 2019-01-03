@@ -10,13 +10,15 @@ import pymongo as pm
 import click
 
 @click.command()
-@click.option('--dbhost', default='192.168.2.226')
-@click.option('--dbport', default=27017)
-@click.option('--user',  prompt=True)
-@click.option('--password',  prompt=True)
-@click.option('--ibhost', default='127.0.0.1')
-@click.option('--ibport', default=7496)
-def save_ib_trade(dbhost, dbport, user, password, ibhost, ibport):
+@click.help_option('-h', '--help')
+@click.option('--dbhost', default='192.168.2.226', help='数据库host')
+@click.option('--dbport', default=27017, help='数据库port')
+@click.option('--user',  prompt=True, help='数据库用户')
+@click.option('--password',  prompt=True, help='数据库密码')
+@click.option('--ibhost', default='127.0.0.1', help='IB Host')
+@click.option('--ibport', default=7496, help='IB Port')
+@click.option('--alive', default=False, type=bool, help='是否持续更新')
+def save_ib_trade(dbhost, dbport, user, password, ibhost, ibport, alive):
     ib = IB()
     client = pm.MongoClient(dbhost,dbport)
     auth_db = client.get_database('admin')
@@ -48,8 +50,12 @@ def save_ib_trade(dbhost, dbport, user, password, ibhost, ibport):
 
     ib.execDetailsEvent += save_trade
     ib.connect(ibhost, ibport, clientId=0, timeout=20)
-    print('connected')
+    print('连接成功')
     fills = ib.fills()
     for f in fills:
         save_fill(f)
-    IB.run()
+
+    if alive:
+        IB.run()
+    else:
+        print(f'共{len(fills)}条成交记录成功入库')
