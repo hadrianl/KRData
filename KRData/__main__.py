@@ -12,6 +12,15 @@ import datetime as dt
 import multiprocessing
 import time
 
+
+def record_data_process(dbhost, dbport, user, password, ctpfronturl_md, ctpfronturl_td, ctpuser, ctppwd, ctpbroker):
+    data_recorder = CTPTickRecorder()
+    click.echo(f'连接数据库->User:{user}  Host:{dbhost} Port:{dbport}')
+    data_recorder.connectDB(user, password, dbhost, dbport)
+    click.echo(f'连接CTP->Front:{ctpfronturl_md} User:{ctpuser} Broker:{ctpbroker}')
+    data_recorder.connectCTP(ctpfronturl_md, ctpfronturl_td, ctpuser, ctppwd, ctpbroker)
+    data_recorder.RecordTicker()
+
 @click.group()
 def cli():
     click.echo('KRData ToolKit!')
@@ -33,13 +42,6 @@ def save_ctp_ticker(dbhost, dbport, user, password, ctpfronturl_md, ctpfronturl_
     # ins = pd.read_csv(ins_list_file, header=None)
     # ins_list = ins.iloc[:, 0].tolist()
     # click.echo(f'共{len(ins_list)}个合约:{ins_list}')
-    def record_data_process():
-        data_recorder = CTPTickRecorder()
-        click.echo(f'连接数据库->User:{user}  Host:{dbhost} Port:{dbport}')
-        data_recorder.connectDB(user, password, dbhost, dbport)
-        click.echo(f'连接CTP->Front:{ctpfronturl_md} User:{ctpuser} Broker:{ctpbroker}')
-        data_recorder.connectCTP(ctpfronturl_md, ctpfronturl_td, ctpuser, ctppwd, ctpbroker)
-        data_recorder.RecordTicker()
 
     DAY_START = dt.time(8, 54)  # 日盘启动和停止时间
     DAY_END = dt.time(15, 21)
@@ -67,7 +69,7 @@ def save_ctp_ticker(dbhost, dbport, user, password, ctpfronturl_md, ctpfronturl_
         # 记录时间则需要启动子进程
         if recording and p is None:
             click.echo('启动CTP Tick Recorder')
-            p = multiprocessing.Process(target=record_data_process)
+            p = multiprocessing.Process(target=record_data_process, args=(dbhost, dbport, user, password, ctpfronturl_md, ctpfronturl_td,ctpuser, ctppwd, ctpbroker))
             p.start()
             click.echo('CTP Tick Recorder启动成功')
 

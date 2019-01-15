@@ -222,5 +222,5 @@ class Trader(TraderApiPy):
 if __name__ == '__main__':
     data_recorder = CTPTickRecorder()
     data_recorder.connectDB('kairuitouzi', '', '192.168.2.226', 27017)
-    data_recorder.connectCTP('tcp://180.168.146.187:10010', 'tcp://180.168.146.187:10000', '120324', '127565568yjd', '9999')
+    data_recorder.connectCTP('tcp://180.168.146.187:10011', 'tcp://180.168.146.187:10001', '120324', '127565568yjd', '9999')
     data_recorder.RecordTicker()
