@@ -9,7 +9,7 @@ from ctpwrapper import MdApiPy, TraderApiPy
 from ctpwrapper import ApiStructure
 import pymongo as pm
 from copy import copy
-from queue import Queue
+from queue import Queue, Empty
 from sys import float_info
 from dateutil import parser
 
@@ -44,7 +44,7 @@ class CTPTickRecorder(MdApiPy):
         col = self._db.get_collection('Instruments')
         col.create_index([('InstrumentID', pm.ASCENDING)], unique=True)
         while True:
-            ins = td._ins_queue.get()
+            ins = td._ins_queue.get(timeout=10)
             if ins:
                 ins_ = ins.to_dict()
                 ins_['CreateDate'] = parser.parse(ins_['CreateDate'])
@@ -77,7 +77,7 @@ class CTPTickRecorder(MdApiPy):
         """
         :return:
         """
-
+        print('Md 前置机已连接')
         user_login = ApiStructure.ReqUserLoginField(BrokerID=self.broker_id,
                                                     UserID=self.investor_id,
                                                     Password=self.password)
@@ -85,14 +85,9 @@ class CTPTickRecorder(MdApiPy):
 
     def OnFrontDisconnected(self, nReason):
 
-        print("Md OnFrontDisconnected %s", nReason)
+        print(f'Md 前置机连接断开 {nReason}')
         # sys.exit()
 
-    def OnHeartBeatWarning(self, nTimeLapse):
-        """心跳超时警告。当长时间未收到报文时，该方法被调用。
-        @param nTimeLapse 距离上次接收报文的时间
-        """
-        print('Md OnHeartBeatWarning, time = %s', nTimeLapse)
 
     def OnRspUserLogin(self, pRspUserLogin, pRspInfo, nRequestID, bIsLast):
         """
@@ -104,13 +99,17 @@ class CTPTickRecorder(MdApiPy):
         :return:
         """
         if pRspInfo.ErrorID != 0:
-            print("Md OnRspUserLogin failed error_id=%s msg:%s",
+            print("Md 登录失败 error_id=%s msg:%s",
                   pRspInfo.ErrorID, pRspInfo.ErrorMsg.decode('gbk'))
         else:
-            print("Md user login successfully")
+            print("Md 登录成功")
             print(pRspUserLogin)
             print(pRspInfo)
-            sub_list = self.get_ins_list()
+            try:
+                sub_list = self.get_ins_list()
+            except Empty:
+                if not self._sub_list:
+                    raise Exception('无法获取交易合约')
             print('sub_list:', list(sub_list))
             super(MdApiPy, self).SubscribeMarketData(list(sub_list))
                 # self.SubscribeMarketData(list(self._sub_list))
@@ -192,15 +191,15 @@ class Trader(TraderApiPy):
         return info.ErrorID != 0
 
     def OnFrontDisconnected(self, nReason):
-        print("on FrontDisConnected disconnected", nReason)
+        print(f"Td 前置机连接断开 {nReason}")
 
     def OnFrontConnected(self):
-
+        print('Td 前置机已连接')
         req = ApiStructure.ReqUserLoginField(BrokerID=self.broker_id,
                                              UserID=self.investor_id,
                                              Password=self.password)
         self.ReqUserLogin(req, self.request_id)
-        print("trader on front connection")
+
 
     def OnRspUserLogin(self, pRspUserLogin, pRspInfo, nRequestID, bIsLast):
 
@@ -214,7 +213,7 @@ class Trader(TraderApiPy):
 
 
     def OnRspUserLogout(self, pUserLogout, pRspInfo, nRequestID, bIsLast):
-        print('td user logout successfully')
+        print('Td 登出成功')
 
 
     def OnRspQryInstrument(self, pInstrument, pRspInfo, nRequestID, bIsLast):
