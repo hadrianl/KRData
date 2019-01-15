@@ -41,10 +41,10 @@ def save_ctp_ticker(dbhost, dbport, user, password, ctpfronturl_md, ctpfronturl_
         data_recorder.connectCTP(ctpfronturl_md, ctpfronturl_td, ctpuser, ctppwd, ctpbroker)
         data_recorder.RecordTicker()
 
-    DAY_START = time(8, 54)  # 日盘启动和停止时间
-    DAY_END = time(15, 21)
-    NIGHT_START = time(20, 54)  # 夜盘启动和停止时间
-    NIGHT_END = time(2, 36)
+    DAY_START = dt.time(8, 54)  # 日盘启动和停止时间
+    DAY_END = dt.time(15, 21)
+    NIGHT_START = dt.time(20, 54)  # 夜盘启动和停止时间
+    NIGHT_END = dt.time(2, 36)
 
     p = None  # 子进程句柄
 
