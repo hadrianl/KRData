@@ -41,7 +41,7 @@ class HKFuture(BaseData):
         if bar_counts is not None and end is not None:
             ret = self.__get_bars_by_count(code, end, bar_counts, ktype, fields)  # 根据查询数量来查询， 性能更优
         else:
-            ret = self.__get_bars_by_daterange(code, start, end, ktype, fields)  # 根据日期范围来查询
+            ret = self.__get_bars_by_timerange(code, start, end, ktype, fields)  # 根据时间范围来查询
 
         return ret
 
@@ -186,6 +186,23 @@ class HKFuture(BaseData):
         if fields is None:
             fields = [field for field in df.columns]
         else:
+            fields = [field for field in fields if field in df.columns]
+
+        return df.loc[:, fields]
+
+    def __get_bars_by_timerange(self, code, start, end, ktype, fields):
+        _fields = ['datetime', 'code', 'open', 'high', 'low', 'close', 'volume']
+        col = self._db.get_collection(f'future_{ktype}_')
+
+        data = [ret for ret in col.find(
+            {'code': code, 'datetime': {'$gte': start,
+                                        '$lte': end}}, _fields,
+            sort=[('datetime', pmg.ASCENDING)])]
+
+        df = pd.DataFrame(data, columns=_fields)
+        df.set_index('datetime', drop=False, inplace=True)
+
+        if fields is not None:
             fields = [field for field in fields if field in df.columns]
 
         return df.loc[:, fields]
