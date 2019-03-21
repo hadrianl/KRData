@@ -6,6 +6,7 @@
 
 import pymongo as pmg
 import datetime as dt
+import pandas as pd
 from dateutil import parser
 
 class IBData:
@@ -14,7 +15,7 @@ class IBData:
         self.cli.get_database('admin').authenticate(username,password)
         self.db = self.cli.get_database('IB')
 
-    def get_trade_records(self, contract=None, start=None, end=None):
+    def get_trade_records(self, contract=None, start=None, end=None, convert_df=True):
         if isinstance(start, str):
             start = parser.parse(start)
 
@@ -30,7 +31,14 @@ class IBData:
 
         col = self.db.get_collection('Trade')
         cur = col.find(_filter)
-        return [t for t in cur]
+        raw_data = [t for t in cur]
+        if convert_df:
+            essential_data = [[d['time'], d['contract']['localSymbol'], d['execution']['execId'], d['execution']['side'],  d['execution']['price'], d['execution']['shares'], d['commissionReport']['commission'] ] for d in raw_data]
+            data = pd.DataFrame(essential_data, columns=['datetime', 'symbol', 'execId', 'side', 'price', 'qty', 'commission'])
+            return data
+        else:
+            return raw_data
+
 
 if __name__ == '__main__':
     ib = IBData('username', 'password')
