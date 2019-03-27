@@ -128,7 +128,7 @@ class HKFuture(BaseData):
         return df
 
     @staticmethod
-    def draw_klines(df:pd.DataFrame):
+    def draw_klines(df:pd.DataFrame, to_file=None):
         import matplotlib.pyplot as plt
         import matplotlib.finance as mpf
         from matplotlib import ticker
@@ -148,9 +148,12 @@ class HKFuture(BaseData):
                 return xdate[int(x)]
             except IndexError:
                 return ''
-
-
-        fig, ax1,  = plt.subplots(figsize=(1200 / 72, 480 / 72))
+        fig=plt.gcf()
+        fig.set_figheight(480 / 72)
+        fig.set_figwidth(1200 / 72)
+        ax1=fig.gca()
+        ax1.cla()
+        # fig, ax1,  = plt.subplots(figsize=(1200 / 72, 480 / 72))
         plt.title('KLine', fontsize='large',fontweight = 'bold')
         mpf.candlestick2_ochl(ax1, data_mat[1], data_mat[2], data_mat[3], data_mat[4], colordown='#53c156', colorup='#ff1717', width=0.3, alpha=1)
         ax1.grid(True)
@@ -159,6 +162,14 @@ class HKFuture(BaseData):
         ax1.xaxis.set_major_locator(mdates.MinuteLocator(byminute=[0, 15, 30, 45],
                                                         interval=1))
         ax1.xaxis.set_major_locator(ticker.MaxNLocator(8))
+
+        if to_file:
+            try:
+                fig.savefig(to_file)
+            except Exception as e:
+                print('errSaveFig:', e)
+
+        return fig
 
     def __get_bars_by_count(self, code, current_dt, bar_counts, ktype, fields):
         col = self._db.get_collection(f'future_{ktype}_')
