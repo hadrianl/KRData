@@ -6,13 +6,13 @@
 
 import re
 import pandas as pd
-try:
-    import matplotlib.pyplot as plt
-    import matplotlib.finance as mpf
-    from matplotlib import ticker
-    import matplotlib.dates as mdates
-except ImportError as e:
-    Warning(f'导入matplotlib异常，检查matplotlib是否安装->{e}')
+# try:
+#     import matplotlib.pyplot as plt
+#     import matplotlib.finance as mpf
+#     from matplotlib import ticker
+#     import matplotlib.dates as mdates
+# except ImportError as e:
+#     Warning(f'导入matplotlib异常，检查matplotlib是否安装->{e}')
 
 def _check_ktype(ktype):
     _ktype = re.findall(r'^(\d+)([a-zA-Z]+)$', ktype)[0]
@@ -36,6 +36,11 @@ def _check_ktype(ktype):
 
 
 def draw_klines(df:pd.DataFrame, extra_lines=None, to_file=None):
+    import matplotlib.pyplot as plt
+    import matplotlib.finance as mpf
+    from matplotlib import ticker
+    import matplotlib.dates as mdates
+
     columns = ['datetime', 'open', 'close', 'high', 'low', 'volume']
     if not set(df.columns).issuperset(columns):
         raise Exception(f'请包含{columns}字段')
