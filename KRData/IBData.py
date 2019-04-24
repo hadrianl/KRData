@@ -63,14 +63,14 @@ class IBMarket:
         delta = dt.datetime.now() - latest_datetime
         total_seconds = delta.total_seconds()
         if total_seconds <= 86400:
-            mkdata = self.ib.reqHistoricalData(contract, '', f'{delta.total_seconds() + 60} S', '1 min', 'TRADES',
+            mkdata = self.ib.reqHistoricalData(contract, '', f'{int(delta.total_seconds() //60 * 60  + 60)} S', '1 min', 'TRADES',
                                                useRTH=False, keepUpToDate=False)
         elif total_seconds <= 86400 * 30:
-            mkdata = self.ib.reqHistoricalData(contract, '', f'{min(delta.days + 1, 30)} D', '1 min', 'TRADES', useRTH=False, keepUpToDate=False)
+            mkdata = self.ib.reqHistoricalData(contract, '', f'{int(min(delta.days + 1, 30))} D', '1 min', 'TRADES', useRTH=False, keepUpToDate=False)
         elif total_seconds < 86400 * 30 * 6:
-            mkdata = self.ib.reqHistoricalData(contract, '', f'{min(delta.days // 30 + 1, 6)} M', '1 min', 'TRADES', useRTH=False, keepUpToDate=False)
+            mkdata = self.ib.reqHistoricalData(contract, '', f'{int(min(delta.days // 30 + 1, 6))} M', '1 min', 'TRADES', useRTH=False, keepUpToDate=False)
         else:
-            mkdata = self.ib.reqHistoricalData(contract, '', f'{delta.days // 30 * 12 + 1} Y', '1 min', 'TRADES', useRTH=False, keepUpToDate=False)
+            mkdata = self.ib.reqHistoricalData(contract, '', f'{int(delta.days // 30 * 12 + 1)} Y', '1 min', 'TRADES', useRTH=False, keepUpToDate=False)
         for bar in mkdata:
             d = self.MkData.from_ibObject(contract, bar)
             try:
