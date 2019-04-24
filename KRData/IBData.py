@@ -81,6 +81,7 @@ class IBMarket:
                 raise e
 
     def get_bars(self, contract, start=None, end=None, exclude_contract=True):
+        contract, = self.ib.qualifyContracts(contract)
         bar = self.__getitem__(contract)
         exclude = ['id']
         if exclude_contract:
