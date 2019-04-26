@@ -44,41 +44,83 @@ class IBData:
 class IBMarket:
     def __init__(self):
         self.ib = IB()
+
         self.MkData = IBMarketData
 
     def connectDB(self, username, password, host='192.168.2.226', port=27017):
         register_connection('IBMarket', db='IBMarket', host=host, port=port, username=username, password=password, authentication_source='admin')
 
-    def connectIB(self, host='127.0.0.1', port=7497, clientId=0):
+    def connectIB(self, host='127.0.0.1', port=7497, clientId=18):
         self.ib.connect(host, port, clientId)
 
-    def update_mkData_from_IB(self, contract: Contract):
-        contract,  = self.ib.qualifyContracts(contract)
-        data = self.__getitem__(contract)
-        if data.count() == 0:
-            headTimestamp = self.ib.reqHeadTimeStamp(contract, 'TRADES', useRTH=False)
-            latest_datetime = headTimestamp
-        else:
-            latest_datetime = data.order_by('-datetime').first().datetime
-        delta = dt.datetime.now() - latest_datetime
-        total_seconds = delta.total_seconds()
-        if total_seconds <= 86400:
-            mkdata = self.ib.reqHistoricalData(contract, '', f'{int(delta.total_seconds() //60 * 60  + 60)} S', '1 min', 'TRADES',
-                                               useRTH=False, keepUpToDate=False)
-        elif total_seconds <= 86400 * 30:
-            mkdata = self.ib.reqHistoricalData(contract, '', f'{int(min(delta.days + 1, 30))} D', '1 min', 'TRADES', useRTH=False, keepUpToDate=False)
-        elif total_seconds < 86400 * 30 * 6:
-            mkdata = self.ib.reqHistoricalData(contract, '', f'{int(min(delta.days // 30 + 1, 6))} M', '1 min', 'TRADES', useRTH=False, keepUpToDate=False)
-        else:
-            mkdata = self.ib.reqHistoricalData(contract, '', f'{int(delta.days // 30 * 12 + 1)} Y', '1 min', 'TRADES', useRTH=False, keepUpToDate=False)
-        for bar in mkdata:
+    def update_mkData_from_IB(self, contract: Contract, keepUpToDate=False):
+        if not self.ib.isConnected():
+            self.connectIB()
+
+        def save_history_bars(contract):
+            contract,  = self.ib.qualifyContracts(contract)
+            data = self.__getitem__(contract)
+            if not data or data.count() == 0:
+                headTimestamp = self.ib.reqHeadTimeStamp(contract, 'TRADES', useRTH=False)
+                latest_datetime = headTimestamp
+            else:
+                latest_datetime = data.order_by('-datetime').first().datetime
+            delta = dt.datetime.now() - latest_datetime
+            total_seconds = delta.total_seconds()
+            if total_seconds <= 86400:
+                mkdata = self.ib.reqHistoricalData(contract, '', f'{int(delta.total_seconds() //60 * 60  + 60)} S', '1 min', 'TRADES',
+                                                   useRTH=False, keepUpToDate=keepUpToDate)
+            elif total_seconds <= 86400 * 30:
+                mkdata = self.ib.reqHistoricalData(contract, '', f'{int(min(delta.days + 1, 30))} D', '1 min', 'TRADES', useRTH=False, keepUpToDate=keepUpToDate)
+            elif total_seconds < 86400 * 30 * 6:
+                mkdata = self.ib.reqHistoricalData(contract, '', f'{int(min(delta.days // 30 + 1, 6))} M', '1 min', 'TRADES', useRTH=False, keepUpToDate=keepUpToDate)
+            else:
+                mkdata = self.ib.reqHistoricalData(contract, '', f'{int(delta.days // 30 * 12 + 1)} Y', '1 min', 'TRADES', useRTH=False, keepUpToDate=keepUpToDate)
+
+            return mkdata
+
+        def save_bar(contract, bar):
             d = self.MkData.from_ibObject(contract, bar)
             try:
                 d.save()
             except NotUniqueError:
-                continue
+                ...
             except Exception as e:
                 raise e
+
+        barData = save_history_bars(contract)
+
+        for bar in barData[:-1]:
+            save_bar(contract, bar)
+
+        if keepUpToDate:
+            def update_bar(bars, hasNewBar):
+                if hasNewBar:
+                    data = self.__getitem__(contract)
+                    l_dt = data.order_by('-datetime').first().datetime
+                    for bar in bars[:-1]:
+                        if bar.date > l_dt:
+                            save_bar(contract, bar)
+
+            barData.updateEvent += update_bar
+            for notConnect in self.ib.loopUntil(lambda : not self.ib.isConnected()):
+                if notConnect:
+                    try:
+                        self.connectIB(self.ib.client.host, self.ib.client.port, self.ib.client.clientId)
+                        barData = save_history_bars(contract)
+
+                        for bar in barData[:-1]:
+                            save_bar(contract, bar)
+
+                        barData.updateEvent += update_bar
+                    except Exception as e:
+                        print(f'{contract}自动更新异常->{e}！5分钟后重连更新')
+                        now = dt.datetime.now()
+                        util.waitUntil(now + dt.timedelta(minutes=5))
+                        lastTradeDate = parser.parse(contract.lastTradeDateOrContractMonth)
+                        if now - lastTradeDate > dt.timedelta(days=1):  # 合约已经到期之后自动换合约，仅针对恒指
+                            contract = Contract(contract.symbol, (lastTradeDate + dt.timedelta(weeks=4)).strftime('%Y%m'))
+
 
     def get_bars(self, contract, start=None, end=None, exclude_contract=True):
         contract, = self.ib.qualifyContracts(contract)
@@ -176,6 +218,7 @@ class IBMarketData(Document):
 
 
 if __name__ == '__main__':
-    ib = IBData('username', 'password')
-    data = ib.get_trade_records()
-    print(data)
+    im = IBMarket()
+    im.connectDB('', '')
+    contract = Future('HSI', '201904')
+    im.update_mkData_from_IB(contract, True)

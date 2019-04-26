@@ -6,6 +6,10 @@
 
 import re
 import pandas as pd
+from logging.handlers import SMTPHandler
+import logging
+import time
+import sys
 # try:
 #     import matplotlib.pyplot as plt
 #     import matplotlib.finance as mpf
@@ -83,6 +87,74 @@ def draw_klines(df:pd.DataFrame, extra_lines=None, to_file=None):
             print('errSaveFig:', e)
 
     return fig
+
+
+class SSLSMTPHandler(SMTPHandler):
+    """
+    支持SSL的SMTPHandler
+    """
+
+    def __init__(self, mailhost, fromaddr, toaddrs: tuple, subject,
+                 credentials=None, secure=None, timeout=5.0,  mail_time_interval=0):
+        super().__init__(mailhost, fromaddr, toaddrs, subject,
+                         credentials, secure, timeout)
+        self._time_interval = mail_time_interval
+        self._msg_map = dict()  # 是一个内容为键时间为值得映射
+
+    def emit(self, record: logging.LogRecord):
+        """
+        Emit a record.
+
+        Format the record and send it to the specified addressees.
+        """
+        from threading import Thread
+        if sys.getsizeof(self._msg_map) > 10 * 1000 * 1000:
+            self._msg_map.clear()
+        Thread(target=self.__emit, args=(record,)).start()
+
+    def __emit(self, record):
+        if record.msg not in self._msg_map or time.time() - self._msg_map[record.msg] > self._time_interval:
+            try:
+                import smtplib
+                from email.mime.multipart import MIMEMultipart
+                from email.mime.text import MIMEText
+                import email.utils
+                port = self.mailport
+                if not port:
+                    port = smtplib.SMTP_SSL_PORT
+                smtp = smtplib.SMTP_SSL(self.mailhost, port, timeout=self.timeout)
+                msgRoot = MIMEMultipart()
+
+                msgRoot['From'] = self.fromaddr
+                msgRoot['To'] = ','.join(self.toaddrs)
+                msgRoot['Subject'] = self.getSubject(record)
+                # msgRoot['Date'] = email.utils.localtime()
+                part = MIMEText(self.format(record), _charset="utf-8")
+                msgRoot.attach(part)
+
+                IBlogFile = getattr(record, 'IBlogFile', None)
+                if IBlogFile:
+                    from email.mime.application import MIMEApplication
+                    try:
+                        logFile = MIMEApplication(open(IBlogFile, "rb").read())
+                        logFile.add_header('Content-Disposition', 'attachment', filename=IBlogFile)
+                        msgRoot.attach(logFile)
+                    except Exception as e:
+                        print(e)
+
+                if self.username:
+                    if self.secure is not None:
+                        smtp.ehlo()
+                        smtp.starttls(*self.secure)
+                        smtp.ehlo()
+                    smtp.login(self.username, self.password)
+                smtp.send_message(msgRoot)
+                smtp.quit()
+                self._msg_map[record.msg] = time.time()
+            except Exception:
+                self.handleError(record)
+        else:
+            pass
 
 
 CODE_SUFFIX = ['1701', '1702', '1703', '1704', '1705', '1706', '1707', '1708', '1709', '1710', '1711', '1712',
