@@ -10,6 +10,7 @@ import pandas as pd
 from dateutil import parser
 from mongoengine import *
 from ib_insync import *
+import re
 
 class IBData:
     def __init__(self, username, password, host='192.168.2.226', port=27017):
@@ -144,6 +145,21 @@ class IBMarket:
     def __getitem__(self, contract: Contract):
         return self.MkData.objects(contract__conId=contract.conId)
 
+class IBComboLeg(EmbeddedDocument):
+    conId = IntField()
+    ratio = IntField()
+    action = StringField()
+    exchange = StringField()
+    openclose = StringField()
+    shortSaleSlot = IntField()
+    designatedLocation = StringField()
+    exemptCode = IntField()
+
+class IBDeltaNeutralContract(EmbeddedDocument):
+    condID = IntField()
+    delta = FloatField()
+    price = FloatField()
+
 
 class IBContract(EmbeddedDocument):
     secType = StringField()
@@ -161,8 +177,10 @@ class IBContract(EmbeddedDocument):
     includeExpired = BooleanField()
     secIdType = StringField()
     secId = StringField()
+    comboLegsDescrip = StringField()
+    comboLegs = EmbeddedDocumentListField(IBComboLeg)
+    deltaNeutralContract = EmbeddedDocumentField(IBDeltaNeutralContract)
 
-    meta = {'db_alias': 'IBMarket', 'collection': 'marketData_1min'}
 
     @staticmethod
     def from_ibObject(contract):
@@ -215,6 +233,93 @@ class IBMarketData(Document):
         md.average = barData.average
 
         return md
+
+class IBExecution(EmbeddedDocument):
+    execId = StringField(required=True)
+    time = DateTimeField()
+    acctNumber = StringField()
+    exchange = StringField()
+    side = StringField()
+    shares = FloatField()
+    price = FloatField()
+    permId = IntField()
+    clientId = IntField()
+    orderId = IntField()
+    liquidation = IntField()
+    cumQty = FloatField()
+    avgPrice = FloatField()
+    orderRef = StringField()
+    evRule = StringField()
+    evMultiplier = FloatField()
+    modelCode = StringField()
+    lastLiquidity = IntField()
+
+class IBCommissionReport(EmbeddedDocument):
+    execId = StringField(required=True)
+    commission = FloatField()
+    currency = StringField()
+    realizedPNL = FloatField()
+    yield_ = FloatField()
+    yieldRedemptionDate = IntField()
+
+class IBFillData(Document):
+    time = DateTimeField(required=True)
+    contract = EmbeddedDocumentField(IBContract, required=True)
+    execution = EmbeddedDocumentField(IBExecution, required=True, unique="execution.execId")
+    commissionReport = EmbeddedDocumentField(IBCommissionReport)
+
+    meta = {'db_alias': 'IB', 'collection': 'Trade'}
+
+class IBTrade:
+    def __init__(self):
+        self.ib = IB()
+
+        self.TradeData = IBFillData
+
+    def connectDB(self, username, password, host='192.168.2.226', port=27017):
+        register_connection('IB', db='IB', host=host, port=port, username=username, password=password, authentication_source='admin')
+
+    def connectIB(self, host='127.0.0.1', port=7497, clientId=18):
+        self.ib.connect(host, port, clientId)
+
+    def __getitem__(self, item: (Contract, str, slice)):
+        if isinstance(item, Contract):
+            return self.TradeData.objects(contract__conId=item.conId)
+        elif isinstance(item, str):
+            r = re.match(r'([A-Z]+)(\d{2,})', item)
+            if r:
+                symbol, num = r.groups()
+                return self.TradeData.objects(contract__symbol=symbol, contract__lastTradeDateOrContractMonth__contains=f'20{num}')
+            else:
+                return self.TradeData.objects(contract__localSymbol=item)
+        elif isinstance(item, slice):
+            filter_ = {}
+            if isinstance(item.start, dt.datetime):
+                filter_['time__gte'] = item.start
+            elif isinstance(item.start, str):
+                filter_['time__gte'] = parser.parse(item.start)
+
+            if isinstance(item.stop, (dt.datetime, str)):
+                filter_['time__lte'] = item.stop
+            elif isinstance(item.stop, str):
+                filter_['time__lte'] = parser.parse(item.stop)
+
+            if isinstance(item.step, str):
+                r = re.match(r'([A-Z]+)(\d{2,})', item.step)
+                if r:
+                    symbol, num = r.groups()
+                    filter_['contract__lastTradeDateOrContractMonth__contains'] = f'20{num}'
+                else:
+                    filter_['contract__localSymbol'] = item.step
+            elif isinstance(item.step, Contract):
+                filter_['contract__conId'] = item.step.conId
+
+            return self.TradeData.objects(**filter_)
+        else:
+            raise IndexError(f"不存在{contract}")
+
+
+
 
 
 if __name__ == '__main__':
