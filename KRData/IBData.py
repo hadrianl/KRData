@@ -54,7 +54,7 @@ class IBMarket:
     def connectIB(self, host='127.0.0.1', port=7497, clientId=18):
         self.ib.connect(host, port, clientId)
 
-    def update_mkData_from_IB(self, contract: Contract, keepUpToDate=False):
+    def save_mkData_from_IB(self, contract: Contract, keepUpToDate=False):
         if not self.ib.isConnected():
             self.connectIB()
 
@@ -160,7 +160,6 @@ class IBDeltaNeutralContract(EmbeddedDocument):
     delta = FloatField()
     price = FloatField()
 
-
 class IBContract(EmbeddedDocument):
     secType = StringField()
     conId = IntField(required=True)
@@ -183,7 +182,7 @@ class IBContract(EmbeddedDocument):
 
 
     @staticmethod
-    def from_ibObject(contract):
+    def from_ibObject(contract: Contract, extra=False):
         c = IBContract()
         c.secType = contract.secType
         if contract.conId != 0:
@@ -203,6 +202,26 @@ class IBContract(EmbeddedDocument):
         c.includeExpired = contract.includeExpired
         c.secIdType = contract.secIdType
         c.secId = contract.secId
+
+        if extra:
+            c.comboLegsDescrip = contract.comboLegsDescrip
+
+            if contract.comboLegs is not None:
+                comboLegList = []
+                for comboLeg in contract.comboLegs:
+                    cl = IBComboLeg()
+                    for k, v in comboLeg.diff().items():
+                        setattr(cl, k, v)
+                    comboLegList.append(cl)
+
+                c.comboLegs = comboLegList
+
+            if contract.deltaNeutralContract is not None:
+                deltaNeutralContract = IBDeltaNeutralContract()
+                for k, v in contract.deltaNeutralContract.diff().items():
+                    setattr(deltaNeutralContract, k, v)
+
+                c.deltaNeutralContract = deltaNeutralContract
 
         return c
 
@@ -254,6 +273,12 @@ class IBExecution(EmbeddedDocument):
     modelCode = StringField()
     lastLiquidity = IntField()
 
+    @staticmethod
+    def from_ibObject(execution: Execution):
+        e = IBExecution()
+        for k, v in execution.dict().items():
+            setattr(e, k, v)
+
 class IBCommissionReport(EmbeddedDocument):
     execId = StringField(required=True)
     commission = FloatField()
@@ -262,7 +287,13 @@ class IBCommissionReport(EmbeddedDocument):
     yield_ = FloatField()
     yieldRedemptionDate = IntField()
 
-class IBFillData(Document):
+    @staticmethod
+    def from_ibObject(commissionReport: CommissionReport):
+        c = IBCommissionReport()
+        for k, v in commissionReport.dict().items():
+            setattr(c, k, v)
+
+class IBFill(Document):
     time = DateTimeField(required=True)
     contract = EmbeddedDocumentField(IBContract, required=True)
     execution = EmbeddedDocumentField(IBExecution, required=True, unique="execution.execId")
@@ -270,17 +301,41 @@ class IBFillData(Document):
 
     meta = {'db_alias': 'IB', 'collection': 'Trade'}
 
+    @staticmethod
+    def from_ibObject(fill: Fill):
+        f = IBFill()
+        f.time = fill.time
+        f.contract = IBContract.from_ibObject(fill.contract, True)
+        f.execution = IBExecution.from_ibObject(fill.execution)
+        f.commissionReport = IBCommissionReport.from_ibObject(fill.commissionReport)
+        return f
+
 class IBTrade:
     def __init__(self):
         self.ib = IB()
 
-        self.TradeData = IBFillData
+        self.TradeData = IBFill
 
     def connectDB(self, username, password, host='192.168.2.226', port=27017):
         register_connection('IB', db='IB', host=host, port=port, username=username, password=password, authentication_source='admin')
 
-    def connectIB(self, host='127.0.0.1', port=7497, clientId=18):
+    def connectIB(self, host='127.0.0.1', port=7497, clientId=0):
         self.ib.connect(host, port, clientId)
+
+    def save_fill_from_IB(self):
+        if not self.ib.isConnected():
+            raise ConnectionError('请先连接IB->connectIB')
+
+        fills = self.ib.fills()
+
+        for fill in fills:
+            f = IBFill.from_ibObject(fill)
+            try:
+                f.save()
+            except NotUniqueError:
+                ...
+            except Exception as e:
+                raise e
 
     def __getitem__(self, item: (Contract, str, slice)):
         if isinstance(item, Contract):
