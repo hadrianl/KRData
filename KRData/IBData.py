@@ -76,7 +76,7 @@ class IBMarket:
             elif total_seconds < 86400 * 30 * 6:
                 mkdata = self.ib.reqHistoricalData(contract, '', f'{int(min(delta.days // 30 + 1, 6))} M', '1 min', 'TRADES', useRTH=False, keepUpToDate=keepUpToDate)
             else:
-                mkdata = self.ib.reqHistoricalData(contract, '', f'{int(delta.days // 30 * 12 + 1)} Y', '1 min', 'TRADES', useRTH=False, keepUpToDate=keepUpToDate)
+                mkdata = self.ib.reqHistoricalData(contract, '', f'{int(delta.days // (30 * 12) + 1)} Y', '1 min', 'TRADES', useRTH=False, keepUpToDate=keepUpToDate)
 
             return mkdata
 
