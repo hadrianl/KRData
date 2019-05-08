@@ -311,13 +311,19 @@ class IBFill(Document):
         return f
 
 class IBTrade:
-    def __init__(self):
+    def __init__(self, account=None):
         self.ib = IB()
-
-        self.TradeData = IBFill
+        self.account = account
+        self.IBFill = IBFill
+        self._objects = None
 
     def connectDB(self, username, password, host='192.168.2.226', port=27017):
         register_connection('IB', db='IB', host=host, port=port, username=username, password=password, authentication_source='admin')
+
+        if self.account is not None:
+            self._objects = self.IBFill.objects(execution__acctNumber=self.account)
+        else:
+            self._objects = self.IBFill.objects
 
     def connectIB(self, host='127.0.0.1', port=7497, clientId=0):
         self.ib.connect(host, port, clientId)
@@ -339,14 +345,14 @@ class IBTrade:
 
     def __getitem__(self, item: (Contract, str, slice)):
         if isinstance(item, Contract):
-            return self.TradeData.objects(contract__conId=item.conId)
+            return self._objects(contract__conId=item.conId)
         elif isinstance(item, str):
             r = re.match(r'([A-Z]+)(\d{2,})', item)
             if r:
                 symbol, num = r.groups()
-                return self.TradeData.objects(contract__symbol=symbol, contract__lastTradeDateOrContractMonth__contains=f'20{num}')
+                return self._objects(contract__symbol=symbol, contract__lastTradeDateOrContractMonth__contains=f'20{num}')
             else:
-                return self.TradeData.objects(contract__localSymbol=item)
+                return self._objects(contract__localSymbol=item)
         elif isinstance(item, slice):
             filter_ = {}
             if isinstance(item.start, dt.datetime):
@@ -369,10 +375,12 @@ class IBTrade:
             elif isinstance(item.step, Contract):
                 filter_['contract__conId'] = item.step.conId
 
-            return self.TradeData.objects(**filter_)
+            return self._objects(**filter_)
         else:
             raise IndexError(f"不存在{contract}")
 
+    def __call__(self, q_obj=None, class_check=True, read_preference=None, **query):
+        self._objects(q_obj=None, class_check=True, read_preference=None, **query)
 
 
 
