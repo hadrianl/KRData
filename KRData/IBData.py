@@ -279,6 +279,8 @@ class IBExecution(EmbeddedDocument):
         for k, v in execution.dict().items():
             setattr(e, k, v)
 
+        return e
+
 class IBCommissionReport(EmbeddedDocument):
     execId = StringField(required=True)
     commission = FloatField()
@@ -292,6 +294,8 @@ class IBCommissionReport(EmbeddedDocument):
         c = IBCommissionReport()
         for k, v in commissionReport.dict().items():
             setattr(c, k, v)
+
+        return c
 
 class IBFill(Document):
     time = DateTimeField(required=True)
@@ -383,9 +387,27 @@ class IBTrade:
             raise IndexError(f"不存在{contract}")
 
     def __call__(self, q_obj=None, class_check=True, read_preference=None, **query):
-        self._objects(q_obj=None, class_check=True, read_preference=None, **query)
+        return self._objects(q_obj=None, class_check=True, read_preference=None, **query)
 
-
+    @staticmethod
+    def to_df(objects):
+        df=pd.DataFrame([[o.time,
+                          o.contract.localSymbol,
+                          o.contract.lastTradeDateOrContractMonth,
+                          o.execution.execId,
+                          o.execution.permId,
+                          o.execution.clientId,
+                          o.execution.acctNumber,
+                          o.execution.side,
+                          o.execution.shares,
+                          o.execution.price,
+                          o.execution.orderRef,
+                          o.commissionReport.commission,
+                          o.commissionReport.currency] for o in objects],
+                         columns=['datetime','localSymbol', 'expiry', 'execId','permId', 'clientId', 'account',
+                                  'side', 'vol', 'price', 'orderRef',
+                                  'commission', 'currency']).set_index('datetime', drop=False)
+        return df
 
 
 if __name__ == '__main__':
