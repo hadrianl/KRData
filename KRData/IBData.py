@@ -334,14 +334,17 @@ class IBTrade:
 
         fills = self.ib.fills()
 
+        saved_fills = []
         for fill in fills:
             f = IBFill.from_ibObject(fill)
             try:
-                f.save()
+                saved_fills.append(f.save())
             except NotUniqueError:
                 ...
             except Exception as e:
-                raise e
+                raise
+
+        return saved_fills
 
     def __getitem__(self, item: (Contract, str, slice)):
         if isinstance(item, Contract):
