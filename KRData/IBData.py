@@ -344,8 +344,9 @@ class IBTrade:
             try:
                 saved_fills.append(f.save())
             except NotUniqueError:
-                ...
-
+                continue
+            except Exception as e:
+                raise e
 
         return saved_fills
 
