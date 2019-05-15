@@ -127,6 +127,31 @@ class HKFuture(BaseData):
         df = pd.concat(data)
         return df
 
+    def get_main_contract_trade_dates(self,underlying:str, start:(str, dt.datetime)=None, end:(str, dt.datetime)=None):
+        if isinstance(start, str):
+            start = parser.parse(start)
+
+        if isinstance(end, str):
+            end = parser.parse(end)
+
+        underlying = underlying.upper()
+        trade_date = self.get_trading_dates(start, end, underlying=underlying)
+
+        code_daterage = OrderedDict()
+        _s = start
+        for i, td in enumerate(trade_date):
+            _c_info = self.get_available_contracts(underlying, td)
+
+            if _c_info.loc[0, 'EXPIRY_DATE'] not in [trade_date[i:i+2]]:
+                code = _c_info.loc[0, 'CODE']
+            else:
+                code = _c_info.loc[1, 'CODE']
+
+            dr = code_daterage.setdefault(code, [])
+            dr.append(td)
+
+        return code_daterage
+
     def __get_bars_by_count(self, code, current_dt, bar_counts, ktype, fields):
         col = self._db.get_collection(f'future_{ktype}_')
         data = [v for v in col.find({'code':code, 'datetime': {'$lte': current_dt}}, limit=bar_counts, sort=[(('datetime', pmg.DESCENDING))])]
