@@ -183,7 +183,7 @@ class HKFuture(BaseData):
         return df.loc[:, fields]
 
     def __get_bars_by_timerange(self, code, start, end, ktype, fields):
-        _fields = ['datetime', 'code', 'open', 'high', 'low', 'close', 'volume']
+        _fields = ['datetime', 'code', 'open', 'high', 'low', 'close', 'volume', 'trade_date']
         col = self._db.get_collection(f'future_{ktype}_')
 
         data = [ret for ret in col.find(
