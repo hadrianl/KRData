@@ -18,7 +18,7 @@ class HKFuture(BaseData):
     def __init__(self, user=None, pwd=None, host='192.168.2.226', port=27017, db='HKFuture'):
         super(HKFuture, self).__init__(host, port, db, user=user, pwd=pwd )
 
-    def get_bars(self, code:str, fields:list=None, start:(str, dt.datetime)=None, end:(str, dt.datetime)=None, bar_counts:int=None, ktype:str='1min') -> pd.DataFrame:
+    def get_bars(self, code:str, fields:list=None, start:(str, dt.datetime)=None, end:(str, dt.datetime)=None, bar_counts:int=None, ktype:str='1min', queryByDate=True) -> pd.DataFrame:
         '''
         获取k线数据，按天提取
         :param code: 代码
@@ -40,6 +40,8 @@ class HKFuture(BaseData):
 
         if bar_counts is not None and end is not None:
             ret = self.__get_bars_by_count(code, end, bar_counts, ktype, fields)  # 根据查询数量来查询， 性能更优
+        elif queryByDate:
+            ret = self.__get_bars_by_daterange(code, start, end, ktype, fields)
         else:
             ret = self.__get_bars_by_timerange(code, start, end, ktype, fields)  # 根据时间范围来查询
 
