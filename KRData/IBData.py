@@ -18,7 +18,7 @@ class IBData:
         self.cli.get_database('admin').authenticate(username,password)
         self.db = self.cli.get_database('IB')
 
-    def get_trade_records(self, contract=None, start=None, end=None, convert_df=True):
+    def get_trade_records(self, contract=None, start=None, end=None, account=None, convert_df=True):
         if isinstance(start, str):
             start = parser.parse(start)
 
@@ -32,12 +32,14 @@ class IBData:
         if contract:
             _filter.update({'contract.localSymbol': contract})
 
+        if account:
+            _filter.update({'execution.acctNumber': account})
         col = self.db.get_collection('Trade')
         cur = col.find(_filter)
         raw_data = [t for t in cur]
         if convert_df:
-            essential_data = [[d['time'], d['contract']['localSymbol'], d['execution']['execId'], d['execution']['side'],  d['execution']['price'], d['execution']['shares'], d['commissionReport']['commission'] ] for d in raw_data]
-            data = pd.DataFrame(essential_data, columns=['datetime', 'symbol', 'execId', 'side', 'price', 'qty', 'commission'])
+            essential_data = [[d['time'], d['execution']['acctNumber'],d['contract']['localSymbol'], d['execution']['execId'], d['execution']['side'],  d['execution']['price'], d['execution']['shares'], d['commissionReport']['commission'] ] for d in raw_data]
+            data = pd.DataFrame(essential_data, columns=['datetime', 'account', 'symbol', 'execId', 'side', 'price', 'qty', 'commission'])
             return data
         else:
             return raw_data
