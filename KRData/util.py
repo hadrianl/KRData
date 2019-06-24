@@ -39,7 +39,7 @@ def _check_ktype(ktype):
     return f'{_n}{_t}'
 
 
-def draw_klines(df:pd.DataFrame, extra_lines=None, to_file=None):
+def draw_klines(df: pd.DataFrame, extra_lines=None, to_file=None):
     import matplotlib.pyplot as plt
     import mpl_finance as mpf
     from matplotlib import ticker
@@ -51,7 +51,7 @@ def draw_klines(df:pd.DataFrame, extra_lines=None, to_file=None):
 
     data = df.loc[:, columns]
 
-    data_mat = data.as_matrix().T
+    data_mat = data.values.T
 
     xdate = data['datetime'].tolist()
 
@@ -60,26 +60,46 @@ def draw_klines(df:pd.DataFrame, extra_lines=None, to_file=None):
             return xdate[int(x)]
         except IndexError:
             return ''
-    fig,[ax1,ax2] = plt.subplots(2,1,sharex=True)
+
+    fig, [ax1, ax2] = plt.subplots(2, 1, sharex=True)
     fig.set_figheight(300 / 72)
     fig.set_figwidth(1200 / 72)
     ax1.set_position([0, 1, 0.8, 1])
     ax2.set_position([0, 0.4, 0.8, 0.5])
-    ax1.set_title('KLine', fontsize='large',fontweight = 'bold')
+    ax1.set_title('KLine', fontsize='large', fontweight='bold')
     ax2.set_title('Volume')
-    mpf.candlestick2_ochl(ax1, data_mat[1], data_mat[2], data_mat[3], data_mat[4], colordown='#53c156', colorup='#ff1717', width=0.3, alpha=1)
-    mpf.volume_overlay(ax2, data_mat[1], data_mat[2], data_mat[5], colordown='#53c156', colorup='#ff1717', width=0.3, alpha=1)
+    mpf.candlestick2_ochl(ax1, data_mat[1], data_mat[2], data_mat[3], data_mat[4], colordown='#53c156',
+                          colorup='#ff1717', width=0.3, alpha=1)
+    mpf.volume_overlay(ax2, data_mat[1], data_mat[2], data_mat[5], colordown='#53c156', colorup='#ff1717', width=0.3,
+                       alpha=1)
     ax1.grid(True)
     ax2.grid(True)
     ax1.xaxis.set_major_formatter(ticker.FuncFormatter(mydate))
     ax1.xaxis.set_major_locator(mdates.HourLocator())
     ax1.xaxis.set_major_locator(mdates.MinuteLocator(byminute=[0, 15, 30, 45],
-                                                    interval=1))
+                                                     interval=1))
     ax1.xaxis.set_major_locator(ticker.MaxNLocator(8))
 
     if extra_lines:
         for l in extra_lines:
             ax1.add_line(l)
+
+    if 'trades' in df.columns:
+        trades_x = []
+        trades_y = []
+        trades_c = []
+        trades_s = []
+        trades_m = []
+        for i, (_, tl) in enumerate(df.trades.iteritems()):
+            if isinstance(tl, list):
+                for t in tl:
+                    print(t['direction'])
+                    trades_x.append(i)
+                    trades_y.append(t['price'])
+                    trades_s.append(t['size'] * 10)
+                    trades_c.append('b' if t['direction'] == 'long' else 'y')
+        else:
+            ax1.scatter(trades_x, trades_y, s=trades_s, c=trades_c, alpha=1)
 
     if to_file:
         try:
