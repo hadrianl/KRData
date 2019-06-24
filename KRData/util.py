@@ -60,21 +60,22 @@ def draw_klines(df:pd.DataFrame, extra_lines=None, to_file=None):
             return xdate[int(x)]
         except IndexError:
             return ''
-    fig=plt.gcf()
-    fig.set_figheight(480 / 72)
+    fig,[ax1,ax2] = plt.subplots(2,1,sharex=True)
+    fig.set_figheight(300 / 72)
     fig.set_figwidth(1200 / 72)
-    ax1=fig.gca()
-    ax1.cla()
-    # fig, ax1,  = plt.subplots(figsize=(1200 / 72, 480 / 72))
-    plt.title('KLine', fontsize='large',fontweight = 'bold')
+    ax1.set_position([0, 1, 0.8, 1])
+    ax2.set_position([0, 0.4, 0.8, 0.5])
+    ax1.set_title('KLine', fontsize='large',fontweight = 'bold')
+    ax2.set_title('Volume')
     mpf.candlestick2_ochl(ax1, data_mat[1], data_mat[2], data_mat[3], data_mat[4], colordown='#53c156', colorup='#ff1717', width=0.3, alpha=1)
+    mpf.volume_overlay(ax2, data_mat[1], data_mat[2], data_mat[5], colordown='#53c156', colorup='#ff1717', width=0.3, alpha=1)
     ax1.grid(True)
+    ax2.grid(True)
     ax1.xaxis.set_major_formatter(ticker.FuncFormatter(mydate))
     ax1.xaxis.set_major_locator(mdates.HourLocator())
     ax1.xaxis.set_major_locator(mdates.MinuteLocator(byminute=[0, 15, 30, 45],
                                                     interval=1))
     ax1.xaxis.set_major_locator(ticker.MaxNLocator(8))
-
 
     if extra_lines:
         for l in extra_lines:
