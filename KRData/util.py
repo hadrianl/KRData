@@ -93,7 +93,6 @@ def draw_klines(df: pd.DataFrame, extra_lines=None, to_file=None):
         for i, (_, tl) in enumerate(df.trades.iteritems()):
             if isinstance(tl, list):
                 for t in tl:
-                    print(t['direction'])
                     trades_x.append(i)
                     trades_y.append(t['price'])
                     trades_s.append(t['size'] * 10)
