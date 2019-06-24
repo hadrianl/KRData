@@ -41,7 +41,7 @@ def _check_ktype(ktype):
 
 def draw_klines(df:pd.DataFrame, extra_lines=None, to_file=None):
     import matplotlib.pyplot as plt
-    import matplotlib.finance as mpf
+    import mpl_finance as mpf
     from matplotlib import ticker
     import matplotlib.dates as mdates
 
