@@ -155,7 +155,7 @@ class HKFuture(BaseData):
 
         return code_daterage
 
-    def display_trades(self, symbol, executions: List[Dict], expand_offset=60, to_file=None):
+    def display_trades(self, symbol, executions: List[Dict], expand_offset: (int, tuple)=60, to_file=None):
         """
         交易可视化
         :param symbol: 合约代码，如 HSI1903
@@ -164,7 +164,7 @@ class HKFuture(BaseData):
                 [{'datetime': '20190307 14:16:00', 'price': 28000, 'size': 1, 'direction': 'long'},
                 {'datetime': '20190307 13:01:00', 'price': 28650, 'size': 1, 'direction': 'short'},
                 {'datetime': '20190307 13:01:00', 'price': 28600, 'size': 1, 'direction': 'long'}]
-        :param expand_offset: 基于交易执行数据，行情数据前后延伸分钟数，默认60
+        :param expand_offset: 基于交易执行数据，行情数据前后延伸分钟数，默认60.也可接受(60, 100)前移60，后移100
         :param to_file: 生成图片文件，默认None则不生成
         :return:
         """
@@ -176,8 +176,13 @@ class HKFuture(BaseData):
         for e in executions:
             if isinstance(e['datetime'], str):
                 e['datetime'] = parser.parse(e['datetime'])
-        start = executions[0]['datetime'] - dt.timedelta(minutes=expand_offset)
-        end = executions[-1]['datetime'] + dt.timedelta(minutes=expand_offset)
+        if isinstance(expand_offset, tuple):
+            s_offset = expand_offset[0]
+            e_offset = expand_offset[1]
+        else:
+            s_offset = e_offset = expand_offset
+        start = executions[0]['datetime'] - dt.timedelta(minutes=s_offset)
+        end = executions[-1]['datetime'] + dt.timedelta(minutes=e_offset)
         market_data = self.get_bars(symbol, start=start, end=end, queryByDate=False)
         market_data['ma5'] = talib.MA(market_data['close'].values, timeperiod=5)
         market_data['ma10'] = talib.MA(market_data['close'].values, timeperiod=10)

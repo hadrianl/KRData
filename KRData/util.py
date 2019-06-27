@@ -10,6 +10,7 @@ from logging.handlers import SMTPHandler
 import logging
 import time
 import sys
+from typing import Iterable
 # try:
 #     import matplotlib.pyplot as plt
 #     import matplotlib.finance as mpf
@@ -40,6 +41,14 @@ def _check_ktype(ktype):
 
 
 def draw_klines(df: pd.DataFrame, extra_lines=None, to_file=None):
+    """
+    基础画图方法
+    :param df: dataframe->基础需包含['datetime', 'open', 'close', 'high', 'low', 'volume']，
+                可选trades: List[Dict]，若有则会添加交易标识Dict中包含字段['price', 'size', 'direction']
+    :param extra_lines: 添加想要的线
+    :param to_file:  生成图片，默认None为不生成
+    :return:
+    """
     import matplotlib.pyplot as plt
     import mpl_finance as mpf
     from matplotlib import ticker
@@ -64,8 +73,9 @@ def draw_klines(df: pd.DataFrame, extra_lines=None, to_file=None):
     fig, [ax1, ax2] = plt.subplots(2, 1, sharex=True)
     fig.set_figheight(300 / 72)
     fig.set_figwidth(1200 / 72)
-    ax1.set_position([0, 1, 0.8, 1])
-    ax2.set_position([0, 0.4, 0.8, 0.5])
+    ax1.set_position([0.1, 0.3, 0.8, 0.6])
+    ax2.set_position([0.1, 0.1, 0.8, 0.15])
+
     ax1.set_title('KLine', fontsize='large', fontweight='bold')
     ax2.set_title('Volume')
     mpf.candlestick2_ochl(ax1, data_mat[1], data_mat[2], data_mat[3], data_mat[4], colordown='#53c156',
@@ -85,20 +95,27 @@ def draw_klines(df: pd.DataFrame, extra_lines=None, to_file=None):
             ax1.add_line(l)
 
     if 'trades' in df.columns:
-        trades_x = []
-        trades_y = []
-        trades_c = []
-        trades_s = []
-        trades_m = []
+        trades_long_x = []
+        trades_long_y = []
+        trades_long_s = []
+        trades_short_x = []
+        trades_short_y = []
+        trades_short_s = []
+
         for i, (_, tl) in enumerate(df.trades.iteritems()):
-            if isinstance(tl, list):
+            if isinstance(tl, Iterable):
                 for t in tl:
-                    trades_x.append(i)
-                    trades_y.append(t['price'])
-                    trades_s.append(t['size'] * 10)
-                    trades_c.append('b' if t['direction'] == 'long' else 'y')
+                    if t['direction'] == 'long':
+                        trades_long_x.append(i)
+                        trades_long_y.append(t['price'])
+                        trades_long_s.append(t['size'] * 100)
+                    elif t['direction'] == 'short':
+                        trades_short_x.append(i)
+                        trades_short_y.append(t['price'])
+                        trades_short_s.append(t['size'] * 100)
         else:
-            ax1.scatter(trades_x, trades_y, s=trades_s, c=trades_c, alpha=1)
+            ax1.scatter(trades_long_x, trades_long_y, s=trades_long_s, c='b', marker='^', alpha=0.7)
+            ax1.scatter(trades_short_x, trades_short_y, s=trades_short_s, c='y', marker='v', alpha=0.8)
 
     if to_file:
         try:
