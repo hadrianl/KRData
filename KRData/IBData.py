@@ -56,29 +56,35 @@ class IBMarket:
     def connectIB(self, host='127.0.0.1', port=7497, clientId=18):
         self.ib.connect(host, port, clientId)
 
-    def save_mkData_from_IB(self, contract: Contract, keepUpToDate=False):
+    def save_mkData_from_IB(self, contract: Contract, start=None, end=None, keepUpToDate=False):
         if not self.ib.isConnected():
             self.connectIB()
 
-        def save_history_bars(contract):
+        def get_history_bars(contract):
             contract,  = self.ib.qualifyContracts(contract)
             data = self.__getitem__(contract)
-            if not data or data.count() == 0:
-                headTimestamp = self.ib.reqHeadTimeStamp(contract, 'TRADES', useRTH=False)
-                latest_datetime = headTimestamp
+            if start is None:
+                if not data or data.count() == 0:
+                    headTimestamp = self.ib.reqHeadTimeStamp(contract, 'TRADES', useRTH=False)
+                    latest_datetime = headTimestamp
+                else:
+                    latest_datetime = data.order_by('-datetime').first().datetime
             else:
-                latest_datetime = data.order_by('-datetime').first().datetime
-            delta = dt.datetime.now() - latest_datetime
+                latest_datetime = start if isinstance(start, dt.datetime) else parser.parse(start)
+
+            _end = '' if end is None else (end if isinstance(end, dt.datetime) else parser.parse(end))
+            delta = dt.datetime.now() - latest_datetime if _end == '' else _end - latest_datetime
             total_seconds = delta.total_seconds()
-            if total_seconds <= 86400:
-                mkdata = self.ib.reqHistoricalData(contract, '', f'{int(delta.total_seconds() //60 * 60  + 60)} S', '1 min', 'TRADES',
+
+            if total_seconds < 86400:
+                mkdata = self.ib.reqHistoricalData(contract, _end, f'{int(delta.total_seconds() //60 * 60  + 60)} S', '1 min', 'TRADES',
                                                    useRTH=False, keepUpToDate=keepUpToDate)
             elif total_seconds <= 86400 * 30:
-                mkdata = self.ib.reqHistoricalData(contract, '', f'{int(min(delta.days + 1, 30))} D', '1 min', 'TRADES', useRTH=False, keepUpToDate=keepUpToDate)
+                mkdata = self.ib.reqHistoricalData(contract, _end, f'{int(min(delta.days + 1, 30))} D', '1 min', 'TRADES', useRTH=False, keepUpToDate=keepUpToDate)
             elif total_seconds < 86400 * 30 * 6:
-                mkdata = self.ib.reqHistoricalData(contract, '', f'{int(min(delta.days // 30 + 1, 6))} M', '1 min', 'TRADES', useRTH=False, keepUpToDate=keepUpToDate)
+                mkdata = self.ib.reqHistoricalData(contract, _end, f'{int(min(delta.days // 30 + 1, 6))} M', '1 min', 'TRADES', useRTH=False, keepUpToDate=keepUpToDate)
             else:
-                mkdata = self.ib.reqHistoricalData(contract, '', f'{int(delta.days // (30 * 12) + 1)} Y', '1 min', 'TRADES', useRTH=False, keepUpToDate=keepUpToDate)
+                mkdata = self.ib.reqHistoricalData(contract, _end, f'{int(delta.days // (30 * 12) + 1)} Y', '1 min', 'TRADES', useRTH=False, keepUpToDate=keepUpToDate)
 
             return mkdata
 
@@ -91,7 +97,7 @@ class IBMarket:
             except Exception as e:
                 raise e
 
-        barData = save_history_bars(contract)
+        barData = get_history_bars(contract)
 
         for bar in barData[:-1]:
             save_bar(contract, bar)
@@ -110,7 +116,7 @@ class IBMarket:
                 if notConnect:
                     try:
                         self.connectIB(self.ib.client.host, self.ib.client.port, self.ib.client.clientId)
-                        barData = save_history_bars(contract)
+                        barData = get_history_bars(contract)
 
                         for bar in barData[:-1]:
                             save_bar(contract, bar)
@@ -125,7 +131,7 @@ class IBMarket:
                             contract = Contract(contract.symbol, (lastTradeDate + dt.timedelta(weeks=4)).strftime('%Y%m'))
 
 
-    def get_bars(self, contract, start=None, end=None, exclude_contract=True):
+    def get_bars(self, contract, start=None, end=None, exclude_contract=True, get_from_ib=False):
         contract, = self.ib.qualifyContracts(contract)
         bar = self.__getitem__(contract)
         exclude = ['id']
@@ -136,8 +142,10 @@ class IBMarket:
             filter['datetime__gte'] = start
 
         if end is not None:
-            filter['datetime__lte'] = start
+            filter['datetime__lte'] = end
 
+            if get_from_ib and (bar.count() == 0 or bar.order_by('-datetime')[0].datetime < end):
+                self.save_mkData_from_IB(contract, start=start, end=end)
         raw_object = bar.exclude(*exclude).filter(**filter)
 
         df = pd.DataFrame([r for r in raw_object.values_list('datetime', 'open', 'high', 'low', 'close', 'volume', 'barCount', 'average')], columns=['datetime', 'open', 'high', 'low', 'close', 'volume', 'barCount', 'average']).set_index('datetime', drop=False)
@@ -322,6 +330,7 @@ class IBTrade:
         self.account = account
         self.IBFill = IBFill
         self._objects = None
+        self._ib_market = IBMarket()
 
     def connectDB(self, username, password, host='192.168.2.226', port=27017):
         register_connection('IB', db='IB', host=host, port=port, username=username, password=password, authentication_source='admin')
@@ -351,6 +360,45 @@ class IBTrade:
                 raise e
 
         return saved_fills
+
+    def display_trades(self, fills, expand_offset=60, to_file=False):
+
+        conIds = [f.contract.conId for f in fills]
+
+        if len(conIds) == 0:
+            raise Exception('没有交易数据')
+        elif len(set(conIds)) > 1:
+            raise Exception('存在多个合约')
+
+        fills = fills.order_by('execution.time')
+
+        contract = Contract(conId=conIds[0])
+        start = fills[0].execution.time - dt.timedelta(minutes=expand_offset) + dt.timedelta(hours=8)
+        end = fills[fills.count() - 1].execution.time + dt.timedelta(minutes=expand_offset) + dt.timedelta(hours=8)
+        mkdata = self._ib_market.get_bars(contract, start=start, end=end, get_from_ib=True)
+
+        import talib
+        mkdata['ma5'] = talib.MA(mkdata['close'].values, timeperiod=5)
+        mkdata['ma10'] = talib.MA(mkdata['close'].values, timeperiod=10)
+        mkdata['ma30'] = talib.MA(mkdata['close'].values, timeperiod=30)
+        mkdata['ma60'] = talib.MA(mkdata['close'].values, timeperiod=60)
+
+        executions_df = pd.DataFrame([{'datetime': f.execution.time.replace(second=0) + dt.timedelta(hours=8), 'price': f.execution.price,
+                                       'size': f.execution.shares, 'direction': 'long' if f.execution.side == 'BOT' else 'short'} for f in fills]).set_index('datetime')
+        executions_df_grouped = executions_df.groupby('datetime').apply(lambda df: df.to_dict('records'))
+        executions_df_grouped.name = 'trades'
+        market_data = mkdata.merge(executions_df_grouped, 'left', left_index=True, right_index=True)
+
+        import mpl_finance as mpf
+        from .util import draw_klines
+        l = range(len(market_data))
+        lines = []
+        for ma, c in zip(['ma5', 'ma10', 'ma30', 'ma60'], ['r', 'b', 'g', 'y']):
+            lines.append(mpf.Line2D(l, market_data[ma], color=c))
+
+        draw_klines(market_data, extra_lines=lines, to_file=to_file)
+
+
 
     def __getitem__(self, item: (Contract, str, slice)):
         if isinstance(item, Contract):
