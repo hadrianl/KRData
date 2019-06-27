@@ -12,6 +12,7 @@ from . import BaseData
 from .util import _check_ktype, CODE_SUFFIX
 import pymongo as pmg
 from collections import OrderedDict
+from typing import Dict, List
 
 
 class HKFuture(BaseData):
@@ -154,6 +155,47 @@ class HKFuture(BaseData):
 
         return code_daterage
 
+    def display_trades(self, symbol, executions: List[Dict], expand_offset=60, to_file=None):
+        """
+        交易可视化
+        :param symbol: 合约代码，如 HSI1903
+        :param executions: 执行订单,
+            example:
+                [{'datetime': '20190307 14:16:00', 'price': 28000, 'size': 1, 'direction': 'long'},
+                {'datetime': '20190307 13:01:00', 'price': 28650, 'size': 1, 'direction': 'short'},
+                {'datetime': '20190307 13:01:00', 'price': 28600, 'size': 1, 'direction': 'long'}]
+        :param expand_offset: 基于交易执行数据，行情数据前后延伸分钟数，默认60
+        :param to_file: 生成图片文件，默认None则不生成
+        :return:
+        """
+        import mpl_finance as mpf
+        import talib
+        from .util import draw_klines
+
+        executions.sort(key=lambda e: e['datetime'])  # 交易执行排序
+        for e in executions:
+            if isinstance(e['datetime'], str):
+                e['datetime'] = parser.parse(e['datetime'])
+        start = executions[0]['datetime'] - dt.timedelta(minutes=expand_offset)
+        end = executions[-1]['datetime'] + dt.timedelta(minutes=expand_offset)
+        market_data = self.get_bars(symbol, start=start, end=end, queryByDate=False)
+        market_data['ma5'] = talib.MA(market_data['close'].values, timeperiod=5)
+        market_data['ma10'] = talib.MA(market_data['close'].values, timeperiod=10)
+        market_data['ma30'] = talib.MA(market_data['close'].values, timeperiod=30)
+        market_data['ma60'] = talib.MA(market_data['close'].values, timeperiod=60)
+
+        executions_df = pd.DataFrame(executions).set_index('datetime')
+        executions_df_grouped = executions_df.groupby('datetime').apply(lambda df: df.to_dict('records'))
+        executions_df_grouped.name = 'trades'
+        market_data = market_data.merge(executions_df_grouped, 'left', left_index=True, right_index=True)
+
+        l = range(len(market_data))
+        lines = []
+        for ma, c in zip(['ma5', 'ma10', 'ma30', 'ma60'], ['r', 'b', 'g', 'y']):
+            lines.append(mpf.Line2D(l, market_data[ma], color=c))
+
+        draw_klines(market_data, extra_lines=lines, to_file=to_file)
+
     def __get_bars_by_count(self, code, current_dt, bar_counts, ktype, fields):
         col = self._db.get_collection(f'future_{ktype}_')
         data = [v for v in col.find({'code':code, 'datetime': {'$lte': current_dt}}, limit=bar_counts, sort=[(('datetime', pmg.DESCENDING))])]
@@ -196,7 +238,9 @@ class HKFuture(BaseData):
         df = pd.DataFrame(data, columns=_fields)
         df.set_index('datetime', drop=False, inplace=True)
 
-        if fields is not None:
+        if fields is None:
+            fields = [field for field in df.columns]
+        else:
             fields = [field for field in fields if field in df.columns]
 
         return df.loc[:, fields]
