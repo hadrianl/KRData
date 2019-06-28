@@ -11,11 +11,16 @@ from dateutil import parser
 from mongoengine import *
 from ib_insync import *
 import re
+from .util import load_json_settings, Singleton
+import warnings
 
 class IBData:
-    def __init__(self, username, password, host='192.168.2.226', port=27017):
-        self.cli = pmg.MongoClient(host, port)
-        self.cli.get_database('admin').authenticate(username,password)
+    def __init__(self):
+        config = load_json_settings('mongodb_settings.json')
+        if not config:
+            raise Exception('请先配置mongodb')
+        self.cli = pmg.MongoClient(config['host'], config['port'])
+        self.cli.get_database('admin').authenticate(config['user'], config['password'])
         self.db = self.cli.get_database('IB')
 
     def get_trade_records(self, contract=None, start=None, end=None, account=None, convert_df=True):
@@ -44,11 +49,22 @@ class IBData:
         else:
             return raw_data
 
-class IBMarket:
+class IBMarket(metaclass=Singleton):
     def __init__(self):
         self.ib = IB()
-
         self.MkData = IBMarketData
+
+        mongo_config = load_json_settings('mongodb_settings.json')
+        if mongo_config:
+            self.connectDB(mongo_config['user'], mongo_config['password'], host=mongo_config['host'], port=mongo_config['port'])
+        else:
+            warnings.warn('未配置mongodb_settings，需要使用connectDB来连接[IBMarket]')
+
+        ib_mkdata_config = load_json_settings('ib_mkdata_settings.json')
+        if ib_mkdata_config:
+            self.connectIB(ib_mkdata_config['host'], ib_mkdata_config['port'], ib_mkdata_config['clientId'])
+        else:
+            warnings.warn('未配置ib_mkdata_settings，需要使用connectDB来连接[IBMarket]')
 
     def connectDB(self, username, password, host='192.168.2.226', port=27017):
         register_connection('IBMarket', db='IBMarket', host=host, port=port, username=username, password=password, authentication_source='admin')
@@ -332,6 +348,18 @@ class IBTrade:
         self._objects = None
         self._ib_market = IBMarket()
 
+        mongo_config = load_json_settings('mongodb_settings.json')
+        if mongo_config:
+            self.connectDB(mongo_config['user'], mongo_config['password'], host=mongo_config['host'], port=mongo_config['port'])
+        else:
+            warnings.warn('未配置mongodb_settings，需要使用connectDB来连接[IBTrade]')
+
+        ib_config = load_json_settings('ib_settings.json')
+        if ib_config:
+            self.connectIB(ib_config['host'], ib_config['port'], ib_config['clientId'])
+        else:
+            warnings.warn('未配置ib_settings，需要使用connectDB来连接[IBMarket]')
+
     def connectDB(self, username, password, host='192.168.2.226', port=27017):
         register_connection('IB', db='IB', host=host, port=port, username=username, password=password, authentication_source='admin')
 
@@ -361,7 +389,7 @@ class IBTrade:
 
         return saved_fills
 
-    def display_trades(self, fills, expand_offset=60, to_file=False):
+    def display_trades(self, fills, expand_offset=60, to_file=None):
 
         conIds = [f.contract.conId for f in fills]
 
@@ -397,8 +425,6 @@ class IBTrade:
             lines.append(mpf.Line2D(l, market_data[ma], color=c))
 
         draw_klines(market_data, extra_lines=lines, to_file=to_file)
-
-
 
     def __getitem__(self, item: (Contract, str, slice)):
         if isinstance(item, Contract):

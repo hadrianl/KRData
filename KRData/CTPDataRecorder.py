@@ -12,9 +12,23 @@ from copy import copy
 from queue import Queue, Empty
 from sys import float_info
 from dateutil import parser
+from .util import load_json_settings
+import warnings
 
 class CTPTickRecorder(MdApiPy):
     def __init__(self):
+        mongo_config = load_json_settings('mongodb_settings.json')
+        if mongo_config:
+            self.connectDB(mongo_config['user'], mongo_config['password'], host=mongo_config['host'], port=mongo_config['port'])
+        else:
+            warnings.warn('未配置mongodb_settings，需要使用connectDB来连接[CTPTickRecorder]')
+
+        ctp_config = load_json_settings('ctp_settings.json')
+        if ctp_config:
+            self.connectCTP(ctp_config['md_url'],ctp_config['td_url'], ctp_config['investor_id'], ctp_config['password'], ctp_config['broker_id'])
+        else:
+            warnings.warn('未配置ctp_settings，需要使用connectCTP来连接[CTPTickRecorder]')
+
         self._sub_list = {}
         self._ticker_queue = Queue()
 

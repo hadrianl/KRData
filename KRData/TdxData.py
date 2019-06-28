@@ -10,11 +10,14 @@ import pandas as pd
 from dateutil import parser
 import datetime as dt
 from . import BaseData
-from .util import _check_ktype
+from .util import _check_ktype, load_json_settings
 
 class TdxFuture(BaseData):
-    def __init__(self, user=None, pwd=None, host='192.168.2.226', port=27017, db='Future'):
-        super(TdxFuture, self).__init__(host, port, db, user=user, pwd=pwd )
+    def __init__(self, db='Future'):
+        config = load_json_settings('mongodb_settings.json')
+        if not config:
+            raise Exception('请先配置mongodb')
+        super(TdxFuture, self).__init__(config['host'], config['port'], db, user=config['user'], pwd=config['password'])
 
     def get_all_codes(self):   # 获取本地合约列表
         code_list = self._col.distinct('code')

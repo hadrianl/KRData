@@ -8,10 +8,18 @@
 from ib_insync import *
 import pymongo as pm
 import re
+from .util import load_json_settings
+import warnings
 
 class IBTickRecorder(IB):
     def __init__(self):
         super(IBTickRecorder, self).__init__()
+
+        mongo_config = load_json_settings('mongodb_settings.json')
+        if mongo_config:
+            self.connectDB(mongo_config['user'], mongo_config['password'], host=mongo_config['host'], port=mongo_config['port'])
+        else:
+            warnings.warn('未配置mongodb_settings，需要使用connectDB来连接[IBTickRecorder]')
 
     def connectDB(self, user, pwd, host, port=27017):
         client = pm.MongoClient(host, port)

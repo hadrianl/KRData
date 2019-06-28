@@ -9,15 +9,18 @@ import pandas as pd
 from dateutil import parser
 import datetime as dt
 from . import BaseData
-from .util import _check_ktype, CODE_SUFFIX
+from .util import _check_ktype, load_json_settings
 import pymongo as pmg
 from collections import OrderedDict
 from typing import Dict, List
 
 
 class HKFuture(BaseData):
-    def __init__(self, user=None, pwd=None, host='192.168.2.226', port=27017, db='HKFuture'):
-        super(HKFuture, self).__init__(host, port, db, user=user, pwd=pwd )
+    def __init__(self, db='HKFuture'):
+        config = load_json_settings('mongodb_settings.json')
+        if not config:
+            raise Exception('请先配置mongodb')
+        super(HKFuture, self).__init__(config['host'], config['port'], db, user=config['user'], pwd=config['password'])
 
     def get_bars(self, code:str, fields:list=None, start:(str, dt.datetime)=None, end:(str, dt.datetime)=None, bar_counts:int=None, ktype:str='1min', queryByDate=True) -> pd.DataFrame:
         '''

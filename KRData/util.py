@@ -11,6 +11,8 @@ import logging
 import time
 import sys
 from typing import Iterable
+from pathlib import Path
+import json
 # try:
 #     import matplotlib.pyplot as plt
 #     import matplotlib.finance as mpf
@@ -18,6 +20,15 @@ from typing import Iterable
 #     import matplotlib.dates as mdates
 # except ImportError as e:
 #     Warning(f'导入matplotlib异常，检查matplotlib是否安装->{e}')
+
+class Singleton(type):
+    _instances = {}
+    def __call__(cls, *args, **kwargs):
+        if cls not in cls._instances:
+            cls._instances[cls] = super(Singleton, cls).__call__(*args, **kwargs)
+        return cls._instances[cls]
+
+
 
 def _check_ktype(ktype):
     _ktype = re.findall(r'^(\d+)([a-zA-Z]+)$', ktype)[0]
@@ -192,6 +203,53 @@ class SSLSMTPHandler(SMTPHandler):
                 self.handleError(record)
         else:
             pass
+
+def _get_KR_settings_dir(temp_name: str):
+    """
+    Get path where trader is running in.
+    """
+    cwd = Path.cwd()
+    temp_path = cwd.joinpath(temp_name)
+
+    # If .vntrader folder exists in current working directory,
+    # then use it as trader running path.
+    if temp_path.exists():
+        return cwd, temp_path
+
+    # Otherwise use home path of system.
+    home_path = Path.home()
+    temp_path = home_path.joinpath(temp_name)
+
+    # Create .vntrader folder under home path if not exist.
+    if not temp_path.exists():
+        temp_path.mkdir()
+
+    return home_path, temp_path
+
+HOME_DIR, TEMP_DIR = _get_KR_settings_dir('.KRData')
+
+def load_json_settings(filename: str):
+    """
+    Load data from json file in temp path.
+    """
+    filepath = TEMP_DIR.joinpath(filename)
+
+    if filepath.exists():
+        with open(filepath, mode='r') as f:
+            data = json.load(f)
+        return data
+    else:
+        save_json_settings(filename, {})
+        return {}
+
+def save_json_settings(filename: str, data: dict):
+    """
+    Save data into json file in temp path.
+    """
+    filepath = TEMP_DIR.joinpath(filename)
+    with open(filepath, mode='w+') as f:
+        json.dump(data, f, indent=4)
+
 
 
 CODE_SUFFIX = ['1701', '1702', '1703', '1704', '1705', '1706', '1707', '1708', '1709', '1710', '1711', '1712',
