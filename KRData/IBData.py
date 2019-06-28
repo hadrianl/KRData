@@ -439,14 +439,14 @@ class IBTrade:
         elif isinstance(item, slice):
             filter_ = {}
             if isinstance(item.start, dt.datetime):
-                filter_['time__gte'] = item.start
+                filter_['time__gte'] = item.start - dt.timedelta(hours=8)
             elif isinstance(item.start, str):
-                filter_['time__gte'] = parser.parse(item.start)
+                filter_['time__gte'] = parser.parse(item.start) - dt.timedelta(hours=8)
 
-            if isinstance(item.stop, (dt.datetime, str)):
-                filter_['time__lte'] = item.stop
+            if isinstance(item.stop, dt.datetime):
+                filter_['time__lte'] = item.stop - dt.timedelta(hours=8)
             elif isinstance(item.stop, str):
-                filter_['time__lte'] = parser.parse(item.stop)
+                filter_['time__lte'] = parser.parse(item.stop) - dt.timedelta(hours=8)
 
             if isinstance(item.step, str):
                 r = re.match(r'([A-Z]+)(\d{2,})', item.step)
