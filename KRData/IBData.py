@@ -10,8 +10,10 @@ import pandas as pd
 from dateutil import parser
 from mongoengine import *
 from ib_insync import *
+import numpy as np
 import re
 from .util import load_json_settings, Singleton
+from functools import lru_cache
 import warnings
 
 class IBData:
@@ -72,16 +74,26 @@ class IBMarket(metaclass=Singleton):
     def connectIB(self, host='127.0.0.1', port=7497, clientId=18):
         self.ib.connect(host, port, clientId)
 
-    def save_mkData_from_IB(self, contract: Contract, start=None, end=None, keepUpToDate=False):
+    def save_mkData_from_IB(self, contract: (Contract, int, str), start=None, end=None, keepUpToDate=False):
         if not self.ib.isConnected():
             self.connectIB()
 
-        def get_history_bars(contract):
-            contract,  = self.ib.qualifyContracts(contract)
-            data = self.__getitem__(contract)
+        def get_history_bars(_contract):
+            if isinstance(_contract, int):
+                _contract = Contract(conId=_contract)
+            elif isinstance(_contract, str):
+                r = re.match(r'([A-Z]+)(\d{2,})', _contract)
+                if r:
+                    symbol, num = r.groups()
+                    _contract = Contract(symbol=symbol, lastTradeDateOrContractMonth=f'20{num}')
+                else:
+                    raise Exception(f'{_contract}名称有误')
+            _contract, = self.ib.qualifyContracts(_contract)
+            data = self.__getitem__(_contract)
+
             if start is None:
                 if not data or data.count() == 0:
-                    headTimestamp = self.ib.reqHeadTimeStamp(contract, 'TRADES', useRTH=False)
+                    headTimestamp = self.ib.reqHeadTimeStamp(_contract, 'TRADES', useRTH=False)
                     latest_datetime = headTimestamp
                 else:
                     latest_datetime = data.order_by('-datetime').first().datetime
@@ -93,14 +105,14 @@ class IBMarket(metaclass=Singleton):
             total_seconds = delta.total_seconds()
 
             if total_seconds < 86400:
-                mkdata = self.ib.reqHistoricalData(contract, _end, f'{int(delta.total_seconds() //60 * 60  + 60)} S', '1 min', 'TRADES',
+                mkdata = self.ib.reqHistoricalData(_contract, _end, f'{int(delta.total_seconds() //60 * 60  + 60)} S', '1 min', 'TRADES',
                                                    useRTH=False, keepUpToDate=keepUpToDate)
             elif total_seconds <= 86400 * 30:
-                mkdata = self.ib.reqHistoricalData(contract, _end, f'{int(min(delta.days + 1, 30))} D', '1 min', 'TRADES', useRTH=False, keepUpToDate=keepUpToDate)
+                mkdata = self.ib.reqHistoricalData(_contract, _end, f'{int(min(delta.days + 1, 30))} D', '1 min', 'TRADES', useRTH=False, keepUpToDate=keepUpToDate)
             elif total_seconds < 86400 * 30 * 6:
-                mkdata = self.ib.reqHistoricalData(contract, _end, f'{int(min(delta.days // 30 + 1, 6))} M', '1 min', 'TRADES', useRTH=False, keepUpToDate=keepUpToDate)
+                mkdata = self.ib.reqHistoricalData(_contract, _end, f'{int(min(delta.days // 30 + 1, 6))} M', '1 min', 'TRADES', useRTH=False, keepUpToDate=keepUpToDate)
             else:
-                mkdata = self.ib.reqHistoricalData(contract, _end, f'{int(delta.days // (30 * 12) + 1)} Y', '1 min', 'TRADES', useRTH=False, keepUpToDate=keepUpToDate)
+                mkdata = self.ib.reqHistoricalData(_contract, _end, f'{int(delta.days // (30 * 12) + 1)} Y', '1 min', 'TRADES', useRTH=False, keepUpToDate=keepUpToDate)
 
             return mkdata
 
@@ -146,13 +158,12 @@ class IBMarket(metaclass=Singleton):
                         if now - lastTradeDate > dt.timedelta(days=1):  # 合约已经到期之后自动换合约，仅针对恒指
                             contract = Contract(contract.symbol, (lastTradeDate + dt.timedelta(weeks=4)).strftime('%Y%m'))
 
-
-    def get_bars(self, contract, start=None, end=None, exclude_contract=True, get_from_ib=False):
-        contract, = self.ib.qualifyContracts(contract)
+    @lru_cache(maxsize=30)
+    def get_bars(self, contract: (Contract, str, int), start=None, end=None):
+        if isinstance(contract, (Contract, str)):
+            contract, = self.verifyContract(contract)
         bar = self.__getitem__(contract)
-        exclude = ['id']
-        if exclude_contract:
-            exclude.append('contract')
+
         filter = {}
         if start is not None:
             filter['datetime__gte'] = start
@@ -160,16 +171,294 @@ class IBMarket(metaclass=Singleton):
         if end is not None:
             filter['datetime__lte'] = end
 
-            if get_from_ib and (bar.count() == 0 or bar.order_by('-datetime')[0].datetime < end):
-                self.save_mkData_from_IB(contract, start=start, end=end)
-        raw_object = bar.exclude(*exclude).filter(**filter)
+        raw_object = bar.exclude(['id', 'contract']).filter(**filter)
 
-        df = pd.DataFrame([r for r in raw_object.values_list('datetime', 'open', 'high', 'low', 'close', 'volume', 'barCount', 'average')], columns=['datetime', 'open', 'high', 'low', 'close', 'volume', 'barCount', 'average']).set_index('datetime', drop=False)
+        return self.to_df(raw_object)
 
+    @lru_cache(maxsize=30)
+    def get_bars_from_ib(self, contract: (Contract, str, int), start=None, end=None, persist=False):
+        _contract = self.verifyContract(contract)
+        if start is None:
+            start = self.ib.reqHeadTimeStamp(_contract, 'TRADES', useRTH=False)
+        else:
+            start = start if isinstance(start, dt.datetime) else parser.parse(start)
+
+        if end is None:
+            end = ''
+        else:
+            end = end if isinstance(end, dt.datetime) else parser.parse(end)
+
+        delta = dt.datetime.now() - start if end == '' else end - start
+        total_seconds = delta.total_seconds()
+        if total_seconds < 86400:
+            barSizeSetting = f'{int(delta.total_seconds() // 60 * 60 + 60)} S'
+        elif total_seconds <= 86400 * 30:
+            barSizeSetting = f'{int(min(delta.days + 1, 30))} D'
+        elif total_seconds < 86400 * 30 * 6:
+            barSizeSetting = f'{int(min(delta.days // 30 + 1, 6))} M'
+        else:
+            barSizeSetting = f'{int(delta.days // (30 * 12) + 1)} Y'
+
+        barlist = self.ib.reqHistoricalData(_contract, end, barSizeSetting, '1 min',
+                                               'TRADES', useRTH=False, keepUpToDate=False)
+
+        if persist:
+            for bar in barlist:
+                d = self.MkData.from_ibObject(_contract, bar)
+                try:
+                    d.save()
+                except NotUniqueError:
+                    ...
+                except Exception as e:
+                    raise e
+
+
+        return util.df(barlist).rename(columns = {'date': 'datetime'}).set_index('datetime', drop=False)
+
+    @staticmethod
+    def to_df(objects):
+        return pd.DataFrame([r for r in objects.values_list('datetime', 'open', 'high', 'low', 'close', 'volume', 'barCount', 'average')], columns=['datetime', 'open', 'high', 'low', 'close', 'volume', 'barCount', 'average']).set_index('datetime', drop=False)
+
+    def __getitem__(self, item: (Contract, str, int, slice)):
+        if isinstance(item, Contract):
+            return self.MkData.objects(contract__conId=contract.conId)
+        elif isinstance(item, str):
+            r = re.match(r'([A-Z]+)(\d{2,})', item)
+            if r:
+                symbol, num = r.groups()
+                return self.MkData.objects(contract__symbol=symbol, contract__lastTradeDateOrContractMonth__contains=f'20{num}')
+            else:
+                return self.MkData.objects(contract__localSymbol=item)
+        elif isinstance(item, int):
+            return self.MkData.objects(contract__conId=item)
+        elif isinstance(item, slice):
+            filter_ = {}
+            if isinstance(item.start, dt.datetime):
+                filter_['datetime__gte'] = item.start - dt.timedelta(hours=8)
+            elif isinstance(item.start, str):
+                filter_['datetime__gte'] = parser.parse(item.start) - dt.timedelta(hours=8)
+
+            if isinstance(item.stop, dt.datetime):
+                filter_['datetime__lte'] = item.stop - dt.timedelta(hours=8)
+            elif isinstance(item.stop, str):
+                filter_['datetime__lte'] = parser.parse(item.stop) - dt.timedelta(hours=8)
+
+            if isinstance(item.step, str):
+                r = re.match(r'([A-Z]+)(\d{2,})', item.step)
+                if r:
+                    symbol, num = r.groups()
+                    filter_['contract__lastTradeDateOrContractMonth__contains'] = f'20{num}'
+                else:
+                    filter_['contract__localSymbol'] = item.step
+            elif isinstance(item.step, Contract):
+                filter_['contract__conId'] = item.step.conId
+            elif isinstance(item.step, int):
+                filter_['contract__conId'] = item.step
+
+            return self.MkData.objects(**filter_)
+
+    def verifyContract(self, contract: (Contract, str, int)) -> Contract:
+        if isinstance(contract, int):
+            contract = Contract(conId=contract)
+        elif isinstance(contract, str):
+            r = re.match(r'([A-Z]+)(\d{2,})', contract)
+            if r:
+                symbol, num = r.groups()
+                contract = Contract(symbol=symbol, lastTradeDateOrContractMonth=f'20{num}')
+            else:
+                raise Exception(f'{contract}名称有误')
+
+        contract = self.ib.qualifyContracts(contract)
+        if not contract:
+            raise Exception(f'验证{contract}错误')
+        return contract[0]
+
+
+
+class IBTrade(metaclass=Singleton):
+    def __init__(self, account=None):
+        self.ib = IB()
+        self.account = account
+        self.IBFill = IBFill
+        self._objects = None
+        self._ib_market = IBMarket()
+
+        mongo_config = load_json_settings('mongodb_settings.json')
+        if mongo_config:
+            self.connectDB(mongo_config['user'], mongo_config['password'], host=mongo_config['host'], port=mongo_config['port'])
+        else:
+            warnings.warn('未配置mongodb_settings，需要使用connectDB来连接[IBTrade]')
+
+        ib_config = load_json_settings('ib_settings.json')
+        if ib_config:
+            self.connectIB(ib_config['host'], ib_config['port'], ib_config['clientId'])
+        else:
+            warnings.warn('未配置ib_settings，需要使用connectDB来连接[IBMarket]')
+
+    def connectDB(self, username, password, host='192.168.2.226', port=27017):
+        register_connection('IB', db='IB', host=host, port=port, username=username, password=password, authentication_source='admin')
+
+        if self.account is not None:
+            self._objects = self.IBFill.objects(execution__acctNumber=self.account)
+        else:
+            self._objects = self.IBFill.objects
+
+    def connectIB(self, host='127.0.0.1', port=7497, clientId=0):
+        self.ib.connect(host, port, clientId)
+
+    def save_fill_from_IB(self):
+        if not self.ib.isConnected():
+            raise ConnectionError('请先连接IB->connectIB')
+
+        fills = self.ib.fills()
+
+        saved_fills = []
+        for fill in fills:
+            f = IBFill.from_ibObject(fill)
+            try:
+                saved_fills.append(f.save())
+            except NotUniqueError:
+                continue
+            except Exception as e:
+                raise e
+
+        return saved_fills
+
+    def display_trades(self, fills, expand_offset=60, mkdata_source='IB', to_file=None):
+        if isinstance(fills, QuerySet):
+            conIds = [f.contract.conId for f in fills]
+
+            if len(conIds) == 0:
+                raise Exception('没有交易数据')
+            elif len(set(conIds)) > 1:
+                raise Exception('存在多个合约')
+
+            fills = fills.order_by('execution.time')
+
+            contract = Contract(conId=conIds[0])
+            start = fills[0].execution.time - dt.timedelta(minutes=expand_offset) + dt.timedelta(hours=8)
+            end = fills[fills.count() - 1].execution.time + dt.timedelta(minutes=expand_offset) + dt.timedelta(hours=8)
+
+            executions_df = pd.DataFrame(
+                [{'datetime': f.execution.time.replace(second=0) + dt.timedelta(hours=8), 'price': f.execution.price,
+                  'size': f.execution.shares, 'direction': 'long' if f.execution.side == 'BOT' else 'short'} for f in
+                 fills]).set_index('datetime')
+            executions_df_grouped = executions_df.groupby('datetime').apply(lambda df: df.to_dict('records'))
+            executions_df_grouped.name = 'trades'
+        elif isinstance(fills, pd.DataFrame):
+            conIds = fills.conId.unique()
+
+            if len(conIds) == 0:
+                raise Exception('没有交易数据')
+            elif len(set(conIds)) > 1:
+                raise Exception('存在多个合约')
+
+            fills.sort_index(inplace=True)
+            contract = Contract(conId=conIds[0])
+            start = fills.iloc[0]['datetime'] - dt.timedelta(minutes=expand_offset)
+            end = fills.iloc[-1]['datetime'] + dt.timedelta(minutes=expand_offset)
+
+            executions_df = fills[['price', 'size', 'direction']]
+            executions_df.index = fills.datetime.apply(lambda t: t.replace(second=0))
+            executions_df['direction'] = np.where(executions_df['direction'] == 'BOT', 'long', 'short')
+            executions_df_grouped = executions_df.groupby('datetime').apply(lambda df: df.to_dict('records'))
+            executions_df_grouped.name = 'trades'
+
+        if mkdata_source == 'IB':
+            mkdata = self._ib_market.get_bars_from_ib(contract, start=start, end=end)
+        elif mkdata_source == 'HK':
+            from .HKData import HKFuture
+            hf = HKFuture()
+            symbol = fills[0].contract.symbol + fills[0].contract.lastTradeDateOrContractMonth[2:6]
+            mkdata = hf.get_bars(symbol, start=start, end=end, queryByDate=False)
+
+        import talib
+        mkdata['ma5'] = talib.MA(mkdata['close'].values, timeperiod=5)
+        mkdata['ma10'] = talib.MA(mkdata['close'].values, timeperiod=10)
+        mkdata['ma30'] = talib.MA(mkdata['close'].values, timeperiod=30)
+        mkdata['ma60'] = talib.MA(mkdata['close'].values, timeperiod=60)
+
+        market_data = mkdata.merge(executions_df_grouped, 'left', left_index=True, right_index=True)
+
+        import mpl_finance as mpf
+        from .util import draw_klines
+        l = range(len(market_data))
+        lines = []
+        for ma, c in zip(['ma5', 'ma10', 'ma30', 'ma60'], ['r', 'b', 'g', 'y']):
+            lines.append(mpf.Line2D(l, market_data[ma], color=c))
+
+        draw_klines(market_data, extra_lines=lines, to_file=to_file)
+
+    def __getitem__(self, item: (Contract, str, slice)):
+        if isinstance(item, Contract):
+            return self._objects(contract__conId=item.conId)
+        elif isinstance(item, str):
+            r = re.match(r'([A-Z]+)(\d{2,})', item)
+            if r:
+                symbol, num = r.groups()
+                return self._objects(contract__symbol=symbol, contract__lastTradeDateOrContractMonth__contains=f'20{num}')
+            else:
+                return self._objects(contract__localSymbol=item)
+        elif isinstance(item, int):
+            return self._objects(contract__conId=item)
+        elif isinstance(item, slice):
+            filter_ = {}
+            if isinstance(item.start, dt.datetime):
+                filter_['time__gte'] = item.start - dt.timedelta(hours=8)
+            elif isinstance(item.start, str):
+                filter_['time__gte'] = parser.parse(item.start) - dt.timedelta(hours=8)
+
+            if isinstance(item.stop, dt.datetime):
+                filter_['time__lte'] = item.stop - dt.timedelta(hours=8)
+            elif isinstance(item.stop, str):
+                filter_['time__lte'] = parser.parse(item.stop) - dt.timedelta(hours=8)
+
+            if isinstance(item.step, str):
+                r = re.match(r'([A-Z]+)(\d{2,})', item.step)
+                if r:
+                    symbol, num = r.groups()
+                    filter_['contract__lastTradeDateOrContractMonth__contains'] = f'20{num}'
+                else:
+                    filter_['contract__localSymbol'] = item.step
+            elif isinstance(item.step, Contract):
+                filter_['contract__conId'] = item.step.conId
+            elif isinstance(item.step, int):
+                filter_['contract__conId'] = item.step
+
+            return self._objects(**filter_)
+        else:
+            raise IndexError(f"请检查索引类型")
+
+    def __call__(self, q_obj=None, class_check=True, read_preference=None, **query):
+        return self._objects(q_obj=None, class_check=True, read_preference=None, **query)
+
+    @staticmethod
+    def to_df(objects):
+        df=pd.DataFrame([[o.time,
+                          o.contract.localSymbol,
+                          o.contract.conId,
+                          o.contract.lastTradeDateOrContractMonth,
+                          o.execution.execId,
+                          o.execution.permId,
+                          o.execution.clientId,
+                          o.execution.acctNumber,
+                          o.execution.side,
+                          o.execution.shares,
+                          o.execution.price,
+                          o.execution.orderRef,
+                          o.commissionReport.commission,
+                          o.commissionReport.currency] for o in objects],
+                         columns=['datetime', 'localSymbol', 'conId', 'expiry', 'execId','permId', 'clientId', 'account',
+                                  'direction', 'size', 'price', 'orderRef',
+                                  'commission', 'currency'])
+        df['datetime'] = df['datetime'] + pd.Timedelta(8, 'hours')
+        df = df.set_index('datetime', drop=False)
         return df
 
-    def __getitem__(self, contract: Contract):
-        return self.MkData.objects(contract__conId=contract.conId)
+
+
+
+# mongoengine document
 
 class IBComboLeg(EmbeddedDocument):
     conId = IntField()
@@ -339,152 +628,6 @@ class IBFill(Document):
         f.execution = IBExecution.from_ibObject(fill.execution)
         f.commissionReport = IBCommissionReport.from_ibObject(fill.commissionReport)
         return f
-
-class IBTrade:
-    def __init__(self, account=None):
-        self.ib = IB()
-        self.account = account
-        self.IBFill = IBFill
-        self._objects = None
-        self._ib_market = IBMarket()
-
-        mongo_config = load_json_settings('mongodb_settings.json')
-        if mongo_config:
-            self.connectDB(mongo_config['user'], mongo_config['password'], host=mongo_config['host'], port=mongo_config['port'])
-        else:
-            warnings.warn('未配置mongodb_settings，需要使用connectDB来连接[IBTrade]')
-
-        ib_config = load_json_settings('ib_settings.json')
-        if ib_config:
-            self.connectIB(ib_config['host'], ib_config['port'], ib_config['clientId'])
-        else:
-            warnings.warn('未配置ib_settings，需要使用connectDB来连接[IBMarket]')
-
-    def connectDB(self, username, password, host='192.168.2.226', port=27017):
-        register_connection('IB', db='IB', host=host, port=port, username=username, password=password, authentication_source='admin')
-
-        if self.account is not None:
-            self._objects = self.IBFill.objects(execution__acctNumber=self.account)
-        else:
-            self._objects = self.IBFill.objects
-
-    def connectIB(self, host='127.0.0.1', port=7497, clientId=0):
-        self.ib.connect(host, port, clientId)
-
-    def save_fill_from_IB(self):
-        if not self.ib.isConnected():
-            raise ConnectionError('请先连接IB->connectIB')
-
-        fills = self.ib.fills()
-
-        saved_fills = []
-        for fill in fills:
-            f = IBFill.from_ibObject(fill)
-            try:
-                saved_fills.append(f.save())
-            except NotUniqueError:
-                continue
-            except Exception as e:
-                raise e
-
-        return saved_fills
-
-    def display_trades(self, fills, expand_offset=60, to_file=None):
-
-        conIds = [f.contract.conId for f in fills]
-
-        if len(conIds) == 0:
-            raise Exception('没有交易数据')
-        elif len(set(conIds)) > 1:
-            raise Exception('存在多个合约')
-
-        fills = fills.order_by('execution.time')
-
-        contract = Contract(conId=conIds[0])
-        start = fills[0].execution.time - dt.timedelta(minutes=expand_offset) + dt.timedelta(hours=8)
-        end = fills[fills.count() - 1].execution.time + dt.timedelta(minutes=expand_offset) + dt.timedelta(hours=8)
-        mkdata = self._ib_market.get_bars(contract, start=start, end=end, get_from_ib=True)
-
-        import talib
-        mkdata['ma5'] = talib.MA(mkdata['close'].values, timeperiod=5)
-        mkdata['ma10'] = talib.MA(mkdata['close'].values, timeperiod=10)
-        mkdata['ma30'] = talib.MA(mkdata['close'].values, timeperiod=30)
-        mkdata['ma60'] = talib.MA(mkdata['close'].values, timeperiod=60)
-
-        executions_df = pd.DataFrame([{'datetime': f.execution.time.replace(second=0) + dt.timedelta(hours=8), 'price': f.execution.price,
-                                       'size': f.execution.shares, 'direction': 'long' if f.execution.side == 'BOT' else 'short'} for f in fills]).set_index('datetime')
-        executions_df_grouped = executions_df.groupby('datetime').apply(lambda df: df.to_dict('records'))
-        executions_df_grouped.name = 'trades'
-        market_data = mkdata.merge(executions_df_grouped, 'left', left_index=True, right_index=True)
-
-        import mpl_finance as mpf
-        from .util import draw_klines
-        l = range(len(market_data))
-        lines = []
-        for ma, c in zip(['ma5', 'ma10', 'ma30', 'ma60'], ['r', 'b', 'g', 'y']):
-            lines.append(mpf.Line2D(l, market_data[ma], color=c))
-
-        draw_klines(market_data, extra_lines=lines, to_file=to_file)
-
-    def __getitem__(self, item: (Contract, str, slice)):
-        if isinstance(item, Contract):
-            return self._objects(contract__conId=item.conId)
-        elif isinstance(item, str):
-            r = re.match(r'([A-Z]+)(\d{2,})', item)
-            if r:
-                symbol, num = r.groups()
-                return self._objects(contract__symbol=symbol, contract__lastTradeDateOrContractMonth__contains=f'20{num}')
-            else:
-                return self._objects(contract__localSymbol=item)
-        elif isinstance(item, slice):
-            filter_ = {}
-            if isinstance(item.start, dt.datetime):
-                filter_['time__gte'] = item.start - dt.timedelta(hours=8)
-            elif isinstance(item.start, str):
-                filter_['time__gte'] = parser.parse(item.start) - dt.timedelta(hours=8)
-
-            if isinstance(item.stop, dt.datetime):
-                filter_['time__lte'] = item.stop - dt.timedelta(hours=8)
-            elif isinstance(item.stop, str):
-                filter_['time__lte'] = parser.parse(item.stop) - dt.timedelta(hours=8)
-
-            if isinstance(item.step, str):
-                r = re.match(r'([A-Z]+)(\d{2,})', item.step)
-                if r:
-                    symbol, num = r.groups()
-                    filter_['contract__lastTradeDateOrContractMonth__contains'] = f'20{num}'
-                else:
-                    filter_['contract__localSymbol'] = item.step
-            elif isinstance(item.step, Contract):
-                filter_['contract__conId'] = item.step.conId
-
-            return self._objects(**filter_)
-        else:
-            raise IndexError(f"不存在{contract}")
-
-    def __call__(self, q_obj=None, class_check=True, read_preference=None, **query):
-        return self._objects(q_obj=None, class_check=True, read_preference=None, **query)
-
-    @staticmethod
-    def to_df(objects):
-        df=pd.DataFrame([[o.time,
-                          o.contract.localSymbol,
-                          o.contract.lastTradeDateOrContractMonth,
-                          o.execution.execId,
-                          o.execution.permId,
-                          o.execution.clientId,
-                          o.execution.acctNumber,
-                          o.execution.side,
-                          o.execution.shares,
-                          o.execution.price,
-                          o.execution.orderRef,
-                          o.commissionReport.commission,
-                          o.commissionReport.currency] for o in objects],
-                         columns=['datetime','localSymbol', 'expiry', 'execId','permId', 'clientId', 'account',
-                                  'side', 'vol', 'price', 'orderRef',
-                                  'commission', 'currency']).set_index('datetime', drop=False)
-        return df
-
 
 if __name__ == '__main__':
     im = IBMarket()

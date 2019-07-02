@@ -13,6 +13,7 @@ import sys
 from typing import Iterable
 from pathlib import Path
 import json
+import datetime as dt
 # try:
 #     import matplotlib.pyplot as plt
 #     import matplotlib.finance as mpf
@@ -136,6 +137,72 @@ def draw_klines(df: pd.DataFrame, extra_lines=None, to_file=None):
 
     return fig
 
+
+def trade_review_in_notebook():
+    from .IBData import IBTrade
+    import ipywidgets as widgets
+    from IPython.display import display
+
+    ibt = IBTrade()
+
+    account = widgets.Text(continuous_update=False, description='account')
+    symbol = widgets.Text(continuous_update=False, description='symbol')
+    source = widgets.RadioButtons(options=['IB', 'HK'], description='source')
+    range_ = widgets.IntRangeSlider(continuous_update=False, description='range')
+    expand_offset = widgets.IntSlider(min=0, max=500, step=10, value=60, continuous_update=False,
+                                      description='expand_offset')
+
+    start_date = widgets.DatePicker()
+    end_date = widgets.DatePicker()
+
+    time_box = widgets.HBox([start_date, end_date])
+
+    def update_time_range(*args):
+        sd = start_date.value
+        ed = end_date.value
+        if sd and ed:
+            start = dt.datetime(sd.year, sd.month, sd.day)
+            end = dt.datetime(ed.year, ed.month, ed.day)
+            minute_count = (end - start).total_seconds() // 60
+            range_.set_trait('max', minute_count)
+            range_.set_trait('value', (0, minute_count))
+            print(range_.max)
+
+    def update_time_range_str(*args):
+        sd = start_date.value
+        ed = end_date.value
+        if sd and ed:
+            start = dt.datetime(sd.year, sd.month, sd.day)
+            _from.value = str(start + dt.timedelta(minutes=range_.value[0]))
+            _to.value = str(start + dt.timedelta(minutes=range_.value[1]))
+
+    _from = widgets.Text(value='', placeholder='yyyymmdd HH:MM:SS', description='From:', disabled=True)
+    _to = widgets.Text(value='', placeholder='yyyymmdd HH:MM:SS', description='To:', disabled=True)
+    time_range_box = widgets.HBox([_from, _to])
+
+    start_date.observe(update_time_range, 'value')
+    end_date.observe(update_time_range, 'value')
+    start_date.observe(update_time_range_str, 'value')
+    end_date.observe(update_time_range_str, 'value')
+    range_.observe(update_time_range_str, 'value')
+
+    def show_data(account, symbol, start_date, end_date, range_, expand_offset, source):
+        print(account, symbol, start_date, end_date, range_, expand_offset, source)
+        if account and symbol and start_date and end_date:
+            start = dt.datetime(start_date.year, start_date.month, start_date.day)
+            end = dt.datetime(end_date.year, end_date.month, end_date.day)
+            ibt.account = account
+            fills = ibt[start + dt.timedelta(minutes=range_[0]): start + dt.timedelta(minutes=range_[1]):symbol]
+            ibt.display_trades(fills, expand_offset=expand_offset, mkdata_source=source)
+
+    params = {'account': account, 'symbol': symbol,
+              'start_date': start_date,
+              'end_date': end_date,
+              'range_': range_,
+              'expand_offset': expand_offset,
+              'source': source}
+    out = widgets.interactive_output(show_data, params)
+    display(account, symbol, source, time_box, range_, expand_offset, time_range_box, out)
 
 class SSLSMTPHandler(SMTPHandler):
     """
