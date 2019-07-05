@@ -138,7 +138,11 @@ def draw_klines(df: pd.DataFrame, extra_lines=None, to_file=None):
     return fig
 
 
-def trade_review_in_notebook():
+def trade_review_in_notebook(trades=None):
+    """
+    用于查看某账户的具体日期的成交明细
+    :return:
+    """
     from .IBData import IBTrade
     import ipywidgets as widgets
     from IPython.display import display
@@ -203,6 +207,205 @@ def trade_review_in_notebook():
               'source': source}
     out = widgets.interactive_output(show_data, params)
     display(account, symbol, source, time_box, range_, expand_offset, time_range_box, out)
+
+
+def trade_review_in_notebook2(symbol=None, mkdata=None, executions: list = None, account=None, date_from=None,
+                             date_to=None, expand_offset=120, source='IB'):
+    import ipywidgets as widgets
+    from IPython.display import display
+    from dateutil import parser
+    import datetime as dt
+    import talib
+    import pandas as pd
+    import mpl_finance as mpf
+
+    if isinstance(expand_offset, tuple):
+        s_offset = expand_offset[0]
+        e_offset = expand_offset[1]
+    else:
+        s_offset = e_offset = expand_offset
+
+    if account and date_from and symbol:
+        # 在只填写accout与date_from的情况下，找出date_from当天，account中的所有交易记录
+        from KRData.IBData import IBTrade
+        ibt = IBTrade(account)
+        date_from = parser.parse(date_from) if isinstance(date_from, str) else date_from
+        date_to = date_from + dt.timedelta(days=1) if date_to is None else (
+            parser.parse(date_to) if isinstance(date_to, str) else date_to)
+        fills = ibt[date_from:date_to:symbol]
+        if fills.count() < 1:
+            raise Exception(f'账户：{account}在{date_from}-{date_to}不存在交易记录')
+        conId = fills[0].contract.conId
+        executions = [{'datetime': f.time.replace(second=0) + dt.timedelta(hours=8), 'price': f.execution.price,
+                       'size': f.execution.shares, 'direction': 'long' if f.execution.side == 'BOT' else 'short'} for f
+                      in fills]
+        executions.sort(key=lambda e: e['datetime'])
+        start = executions[0]['datetime'] - dt.timedelta(minutes=s_offset)
+        end = executions[-1]['datetime'] + dt.timedelta(minutes=e_offset)
+        if source == 'IB':
+            mkdata = ibt._ib_market.get_bars_from_ib(conId, start, end)
+        elif source == 'HK':
+            from KRData.HKData import HKFuture
+            hf = HKFuture()
+            mkdata = hf.get_bars(symbol, start=start, end=end, queryByDate=False)
+            del hf
+        del ibt
+    elif mkdata is None and symbol:
+        # 在只填写execution的情况下，自动根据source获取数据
+        for e in executions:
+            if isinstance(e['datetime'], str):
+                e['datetime'] = parser.parse(e['datetime'])
+
+            e['datetime'] = e['datetime'].replace(second=0)
+
+        if executions:
+            executions.sort(key=lambda e: e['datetime'])  # 交易执行排序
+
+        start = executions[0]['datetime'] - dt.timedelta(minutes=s_offset)
+        end = executions[-1]['datetime'] + dt.timedelta(minutes=e_offset)
+
+        if source == 'IB':
+            from KRData.IBData import IBMarket
+            ibm = IBMarket()
+            mkdata = ibm.get_bars_from_ib(symbol, start, end)
+            del ibm
+        elif source == 'HK':
+            from KRData.HKData import HKFuture
+            hf = HKFuture()
+            mkdata = hf.get_bars(symbol, start=start, end=end, queryByDate=False)
+            del hf
+
+    mkdata['ma5'] = talib.MA(mkdata['close'].values, timeperiod=5)
+    mkdata['ma10'] = talib.MA(mkdata['close'].values, timeperiod=10)
+    mkdata['ma30'] = talib.MA(mkdata['close'].values, timeperiod=30)
+    mkdata['ma60'] = talib.MA(mkdata['close'].values, timeperiod=60)
+
+    executions_df = pd.DataFrame(executions).set_index('datetime')
+    executions_df_grouped = executions_df.groupby('datetime').apply(lambda df: df.to_dict('records'))
+    executions_df_grouped.name = 'trades'
+    mkdata = mkdata.merge(executions_df_grouped, 'left', left_index=True, right_index=True)
+
+    symbolWidget = widgets.Text(value=str(symbol), description='symbol', disable=True)
+
+    fromWidget = widgets.Text(value='', placeholder='yyyymmdd HH:MM:SS', description='From:', disabled=True)
+    toWidget = widgets.Text(value='', placeholder='yyyymmdd HH:MM:SS', description='To:', disabled=True)
+    time_range_box = widgets.HBox([fromWidget, toWidget])
+
+    offsetWidget = widgets.IntSlider(min=0, max=500, step=10, value=60, description='expand_offset')
+
+    executionSelection = widgets.SelectionRangeSlider(
+        options=[(str(_e['datetime']), _e['datetime']) for _e in executions],
+        index=(0, len(executions) - 1),
+        description='execution',
+        disabled=False,
+        continuous_update=False,
+        )
+
+    fig = None
+
+    def save_fig(b):
+        print(b)
+        print(fig)
+        if fig is not None:
+            try:
+                fig.savefig('fig.png')
+            except Exception as e:
+                print('errSaveFig:', e)
+
+    saveFigButton = widgets.Button(description='保存图片')
+    saveFigButton.on_click(save_fig)
+
+    def show_data(e_select, offset):
+        nonlocal fig
+        s = e_select[0] - dt.timedelta(minutes=offset)
+        e = e_select[-1] + dt.timedelta(minutes=offset)
+
+        fromWidget.value = str(s)
+        toWidget.value = str(e)
+
+        temp_mkdata = mkdata[s:e]
+        l = range(len(temp_mkdata))
+        lines = []
+        for ma, c in zip(['ma5', 'ma10', 'ma30', 'ma60'], ['r', 'b', 'g', 'y']):
+            lines.append(mpf.Line2D(l, temp_mkdata[ma], color=c))
+
+        fig = draw_klines(temp_mkdata, extra_lines=lines)
+
+    params = {'e_select': executionSelection, 'offset': offsetWidget}
+
+    out = widgets.interactive_output(show_data, params)
+    display(symbolWidget, time_range_box, executionSelection, offsetWidget, saveFigButton, out)
+
+
+def trade_review_in_notebook3(symbol, executions: list = None, pnlType='session'):
+    import ipywidgets as widgets
+    from IPython.display import display
+    from .HKData import HKFuture
+
+    if executions:
+        executions.sort(key=lambda e: e['datetime'])  # 交易执行排序
+
+    open_close_match = []
+    if pnlType == 'session':
+        from collections import deque
+        pos_queue = deque()
+        match = []
+        for i, e in enumerate(executions):
+            pos_queue.append((i, e['size']) if e['direction'] == 'long' else (i, -e['size']))
+            match.append(i)
+            if sum(p[1] for p in pos_queue) == 0:
+                pos_queue.clear()
+                open_close_match.append(match)
+                match = []
+        else:
+            if match:
+                open_close_match.append(match)
+
+    matchSelection = widgets.SelectMultiple(
+        options=[(str(m), m) for m in open_close_match],
+        rows=20,
+        layout=widgets.Layout(width='100%', height='100px'),
+        description='match',
+        disabled=False
+    )
+    symbolWidget = widgets.Text(value=str(symbol), description='symbol', disable=True)
+    figSuffixWidget = widgets.Text(value='', description='figSuffix')
+    offsetWidget = widgets.IntSlider(min=0, max=500, step=10, value=60, continuous_update=False,
+                                     description='expand_offset')
+
+    fig = None
+
+    def save_fig(b):
+        if fig is not None:
+            try:
+                fig.savefig(f'{symbol}_{figSuffixWidget.value}.png')
+            except Exception as e:
+                print('errSaveFig:', e)
+
+    saveFigButton = widgets.Button(description='保存图片')
+    saveFigButton.on_click(save_fig)
+
+    savfig_box = widgets.HBox([saveFigButton, figSuffixWidget])
+
+    hf = HKFuture()
+
+    def show_data(match, expand_offset):
+        nonlocal fig
+        es = []
+        for m in match:
+            for i in m:
+                es.append(executions[i])
+        if not es:
+            print('请选择execution')
+            return
+        fig = hf.display_trades(symbol, es, expand_offset=expand_offset)
+
+    params = {'match': matchSelection, 'expand_offset': offsetWidget}
+
+    out = widgets.interactive_output(show_data, params)
+    display(symbolWidget, matchSelection, offsetWidget, savfig_box, out)
+
+
 
 class SSLSMTPHandler(SMTPHandler):
     """

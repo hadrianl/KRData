@@ -74,6 +74,9 @@ class IBMarket(metaclass=Singleton):
     def connectIB(self, host='127.0.0.1', port=7497, clientId=18):
         self.ib.connect(host, port, clientId)
 
+    def __del__(self):
+        self.ib.disconnect()
+
     def save_mkData_from_IB(self, contract: (Contract, int, str), start=None, end=None, keepUpToDate=False):
         if not self.ib.isConnected():
             self.connectIB()
@@ -306,6 +309,10 @@ class IBTrade(metaclass=Singleton):
     def connectIB(self, host='127.0.0.1', port=7497, clientId=0):
         self.ib.connect(host, port, clientId)
 
+
+    def __del__(self):
+        self.ib.disconnect()
+
     def save_fill_from_IB(self):
         if not self.ib.isConnected():
             raise ConnectionError('请先连接IB->connectIB')
@@ -387,7 +394,7 @@ class IBTrade(metaclass=Singleton):
         for ma, c in zip(['ma5', 'ma10', 'ma30', 'ma60'], ['r', 'b', 'g', 'y']):
             lines.append(mpf.Line2D(l, market_data[ma], color=c))
 
-        draw_klines(market_data, extra_lines=lines, to_file=to_file)
+        return draw_klines(market_data, extra_lines=lines, to_file=to_file)
 
     def __getitem__(self, item: (Contract, str, slice)):
         if isinstance(item, Contract):

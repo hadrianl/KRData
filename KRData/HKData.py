@@ -179,6 +179,7 @@ class HKFuture(BaseData):
         for e in executions:
             if isinstance(e['datetime'], str):
                 e['datetime'] = parser.parse(e['datetime'])
+            e['datetime'] = e['datetime'].replace(second=0)
         if isinstance(expand_offset, tuple):
             s_offset = expand_offset[0]
             e_offset = expand_offset[1]
@@ -202,7 +203,7 @@ class HKFuture(BaseData):
         for ma, c in zip(['ma5', 'ma10', 'ma30', 'ma60'], ['r', 'b', 'g', 'y']):
             lines.append(mpf.Line2D(l, market_data[ma], color=c))
 
-        draw_klines(market_data, extra_lines=lines, to_file=to_file)
+        return draw_klines(market_data, extra_lines=lines, to_file=to_file)
 
     def __get_bars_by_count(self, code, current_dt, bar_counts, ktype, fields):
         col = self._db.get_collection(f'future_{ktype}_')
