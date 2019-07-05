@@ -267,7 +267,7 @@ class IBMarket(metaclass=Singleton):
             r = re.match(r'([A-Z]+)(\d{2,})', contract)
             if r:
                 symbol, num = r.groups()
-                contract = Contract(symbol=symbol, lastTradeDateOrContractMonth=f'20{num}')
+                contract = Future(symbol=symbol, lastTradeDateOrContractMonth=f'20{num}')
             else:
                 raise Exception(f'{contract}名称有误')
 
