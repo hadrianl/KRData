@@ -198,12 +198,7 @@ class HKFuture(BaseData):
         executions_df_grouped.name = 'trades'
         market_data = market_data.merge(executions_df_grouped, 'left', left_index=True, right_index=True)
 
-        l = range(len(market_data))
-        lines = []
-        for ma, c in zip(['ma5', 'ma10', 'ma30', 'ma60'], ['r', 'b', 'g', 'y']):
-            lines.append(mpf.Line2D(l, market_data[ma], color=c))
-
-        return draw_klines(market_data, extra_lines=lines, to_file=to_file)
+        return draw_klines(market_data, to_file=to_file)
 
     def __get_bars_by_count(self, code, current_dt, bar_counts, ktype, fields):
         col = self._db.get_collection(f'future_{ktype}_')
@@ -287,7 +282,7 @@ class HKFuture(BaseData):
                 resampled_df = df.resample(ktype).apply(apply_func_dict)
             else:
                 resampled_df = df.resample(ktype, on='trade_date').apply(apply_func_dict)
-            resampled_df.dropna(how='all', inplace=True)
+            resampled_df.dropna(thresh=2, inplace=True)
             if fields is None:
                 fields = [field for field in resampled_df.columns]
             else:

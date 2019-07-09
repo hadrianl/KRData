@@ -14,6 +14,7 @@ from typing import Iterable
 from pathlib import Path
 import json
 import datetime as dt
+import numpy as np
 # try:
 #     import matplotlib.pyplot as plt
 #     import matplotlib.finance as mpf
@@ -52,7 +53,7 @@ def _check_ktype(ktype):
     return f'{_n}{_t}'
 
 
-def draw_klines(df: pd.DataFrame, extra_lines=None, to_file=None):
+def draw_klines(df: pd.DataFrame, main_chart_lines=None, sub_chart_lines=None, to_file=None):
     """
     基础画图方法
     :param df: dataframe->基础需包含['datetime', 'open', 'close', 'high', 'low', 'volume']，
@@ -82,29 +83,54 @@ def draw_klines(df: pd.DataFrame, extra_lines=None, to_file=None):
         except IndexError:
             return ''
 
-    fig, [ax1, ax2] = plt.subplots(2, 1, sharex=True)
+    fig, [ax1, ax2, ax3] = plt.subplots(3, 1, sharex=True)
     fig.set_figheight(300 / 72)
     fig.set_figwidth(1200 / 72)
-    ax1.set_position([0.1, 0.3, 0.8, 0.6])
-    ax2.set_position([0.1, 0.1, 0.8, 0.15])
+    ax1.set_position([0.1, 0.4, 0.8, 0.55])
+    ax2.set_position([0.1, 0.2, 0.8, 0.15])
+    ax3.set_position([0.1, 0.05, 0.8, 0.1])
 
     ax1.set_title('KLine', fontsize='large', fontweight='bold')
-    ax2.set_title('Volume')
+    ax2.set_title('MACD')
+    ax3.set_title('Volume')
     mpf.candlestick2_ochl(ax1, data_mat[1], data_mat[2], data_mat[3], data_mat[4], colordown='#53c156',
                           colorup='#ff1717', width=0.3, alpha=1)
-    mpf.volume_overlay(ax2, data_mat[1], data_mat[2], data_mat[5], colordown='#53c156', colorup='#ff1717', width=0.3,
+    mpf.volume_overlay(ax3, data_mat[1], data_mat[2], data_mat[5], colordown='#53c156', colorup='#ff1717', width=0.3,
                        alpha=1)
     ax1.grid(True)
     ax2.grid(True)
+    ax3.grid(True)
     ax1.xaxis.set_major_formatter(ticker.FuncFormatter(mydate))
     ax1.xaxis.set_major_locator(mdates.HourLocator())
     ax1.xaxis.set_major_locator(mdates.MinuteLocator(byminute=[0, 15, 30, 45],
                                                      interval=1))
     ax1.xaxis.set_major_locator(ticker.MaxNLocator(8))
 
-    if extra_lines:
-        for l in extra_lines:
+    if main_chart_lines:
+        for l in main_chart_lines:
             ax1.add_line(l)
+    else:
+        import talib
+        l = range(len(data_mat[2]))
+        for ma, c in zip([5, 10, 30, 60], ['r', 'b', 'g', 'y']):
+            ma_line = mpf.Line2D(l, talib.MA(data_mat[2].astype(float), ma), color=c)
+            ax1.add_line(ma_line)
+
+    if sub_chart_lines:
+        for l in main_chart_lines:
+            ax2.add_line(l)
+    else:
+        import talib
+        dif, dea, macd = talib.MACDEXT(data_mat[2].astype(float), fastperiod=12, fastmatype=1, slowperiod=26, slowmatype=1, signalperiod=9, signalmatype=1)
+        macd = macd * 2
+        l = range(len(macd))
+        dif_line = mpf.Line2D(l, dif, color='b')
+        dea_line = mpf.Line2D(l, dea, color='y')
+        ax2.add_line(dif_line)
+        ax2.add_line(dea_line)
+        mpf.candlestick2_ochl(ax2, [0]*len(macd), macd,
+                              np.where(macd >= 0, macd, 0), np.where(macd < 0, macd, 0), colordown='#53c156',
+                          colorup='#ff1717', width=0.3, alpha=1)
 
     if 'trades' in df.columns:
         trades_long_x = []
@@ -329,7 +355,7 @@ def trade_review_in_notebook2(symbol=None, mkdata=None, executions: list = None,
         for ma, c in zip(['ma5', 'ma10', 'ma30', 'ma60'], ['r', 'b', 'g', 'y']):
             lines.append(mpf.Line2D(l, temp_mkdata[ma], color=c))
 
-        fig = draw_klines(temp_mkdata, extra_lines=lines)
+        fig = draw_klines(temp_mkdata, main_chart_lines=lines)
 
     params = {'e_select': executionSelection, 'offset': offsetWidget}
 

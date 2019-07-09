@@ -333,6 +333,8 @@ class IBTrade(metaclass=Singleton):
         return saved_fills
 
     def display_trades(self, fills, expand_offset=60, mkdata_source='IB', to_file=None):
+        from .util import draw_klines
+
         if isinstance(fills, QuerySet):
             conIds = [f.contract.conId for f in fills]
 
@@ -388,14 +390,7 @@ class IBTrade(metaclass=Singleton):
 
         market_data = mkdata.merge(executions_df_grouped, 'left', left_index=True, right_index=True)
 
-        import mpl_finance as mpf
-        from .util import draw_klines
-        l = range(len(market_data))
-        lines = []
-        for ma, c in zip(['ma5', 'ma10', 'ma30', 'ma60'], ['r', 'b', 'g', 'y']):
-            lines.append(mpf.Line2D(l, market_data[ma], color=c))
-
-        return draw_klines(market_data, extra_lines=lines, to_file=to_file)
+        return draw_klines(market_data, to_file=to_file)
 
     def __getitem__(self, item: (Contract, str, slice)):
         if isinstance(item, Contract):
