@@ -198,6 +198,8 @@ def trade_review_in_notebook(trades=None):
     account = widgets.Text(continuous_update=False, description='account')
     symbol = widgets.Text(continuous_update=False, description='symbol')
     source = widgets.RadioButtons(options=['IB', 'HK'], description='source')
+    ktype = widgets.RadioButtons(options=[('1 min', 1), ('5 min', 5),('15 min', 15), ('30 min', 30), ('60 min', 30)], description='ktype')
+    annotate = widgets.Checkbox(value=False, description='annotate')
     range_ = widgets.IntRangeSlider(continuous_update=False, description='range')
     expand_offset = widgets.IntSlider(min=0, max=500, step=10, value=60, continuous_update=False,
                                       description='expand_offset')
@@ -236,26 +238,28 @@ def trade_review_in_notebook(trades=None):
     end_date.observe(update_time_range_str, 'value')
     range_.observe(update_time_range_str, 'value')
 
-    def show_data(account, symbol, start_date, end_date, range_, expand_offset, source):
+    def show_data(account, symbol, start_date, end_date, ktype, range_, expand_offset, source, annotate):
         print(account, symbol, start_date, end_date, range_, expand_offset, source)
         if account and symbol and start_date and end_date:
             start = dt.datetime(start_date.year, start_date.month, start_date.day)
             end = dt.datetime(end_date.year, end_date.month, end_date.day)
             ibt.account = account
             fills = ibt[start + dt.timedelta(minutes=range_[0]): start + dt.timedelta(minutes=range_[1]):symbol]
-            ibt.display_trades(fills, expand_offset=expand_offset, mkdata_source=source)
+            ibt.display_trades(fills, period=ktype, expand_offset=expand_offset, mkdata_source=source, annotate=annotate)
 
     params = {'account': account, 'symbol': symbol,
               'start_date': start_date,
               'end_date': end_date,
+              'ktype': ktype,
               'range_': range_,
               'expand_offset': expand_offset,
-              'source': source}
+              'source': source,
+              'annotate': annotate}
     out = widgets.interactive_output(show_data, params)
-    display(account, symbol, source, time_box, range_, expand_offset, time_range_box, out)
+    display(account, symbol, source, ktype, annotate, time_box, range_, expand_offset, time_range_box, out)
 
 
-def trade_review_in_notebook2(symbol=None, mkdata=None, executions: list = None, account=None, date_from=None,
+def trade_review_in_notebook2(symbol=None, mkdata=None, period=1, executions: list = None, account=None, date_from=None,
                              date_to=None, expand_offset=120, source='IB'):
     import ipywidgets as widgets
     from IPython.display import display
@@ -289,11 +293,12 @@ def trade_review_in_notebook2(symbol=None, mkdata=None, executions: list = None,
         start = executions[0]['datetime'] - dt.timedelta(minutes=s_offset)
         end = executions[-1]['datetime'] + dt.timedelta(minutes=e_offset)
         if source == 'IB':
-            mkdata = ibt._ib_market.get_bars_from_ib(conId, start, end)
+            barTypeMap = {1: '1 min', 5: '5 mins', 15: '15 mins', 30: '30 mins', 60: '1 hour'}
+            mkdata = ibt._ib_market.get_bars_from_ib(conId, barType=barTypeMap.get(period, '1 min'), start=start, end=end)
         elif source == 'HK':
             from KRData.HKData import HKFuture
             hf = HKFuture()
-            mkdata = hf.get_bars(symbol, start=start, end=end, queryByDate=False)
+            mkdata = hf.get_bars(symbol, start=start, end=end, ktype=f'{period}min', queryByDate=False)
             del hf
         del ibt
     elif mkdata is None and symbol:
@@ -313,29 +318,32 @@ def trade_review_in_notebook2(symbol=None, mkdata=None, executions: list = None,
         if source == 'IB':
             from KRData.IBData import IBMarket
             ibm = IBMarket()
-            mkdata = ibm.get_bars_from_ib(symbol, start, end)
+            barTypeMap = {1: '1 min', 5: '5 mins', 15: '15 mins', 30: '30 mins', 60: '1 hour'}
+            mkdata = ibm.get_bars_from_ib(symbol, barType=barTypeMap.get(period, '1 min'), start=start, end=end)
             del ibm
         elif source == 'HK':
             from KRData.HKData import HKFuture
             hf = HKFuture()
-            mkdata = hf.get_bars(symbol, start=start, end=end, queryByDate=False)
+            mkdata = hf.get_bars(symbol, start=start, end=end, ktype=f'{period}min', queryByDate=False)
             del hf
 
+    executions_df = pd.DataFrame(executions).set_index('datetime')
+    executions_df.index = mkdata.asof(executions_df.index)['datetime']
+    executions_df_grouped = executions_df.groupby('datetime').apply(lambda df: df.to_dict('records'))
+    executions_df_grouped.name = 'trades'
+
+    mkdata = mkdata.merge(executions_df_grouped, 'left', left_index=True, right_index=True)
     mkdata['ma5'] = talib.MA(mkdata['close'].values, timeperiod=5)
     mkdata['ma10'] = talib.MA(mkdata['close'].values, timeperiod=10)
     mkdata['ma30'] = talib.MA(mkdata['close'].values, timeperiod=30)
     mkdata['ma60'] = talib.MA(mkdata['close'].values, timeperiod=60)
-
-    executions_df = pd.DataFrame(executions).set_index('datetime')
-    executions_df_grouped = executions_df.groupby('datetime').apply(lambda df: df.to_dict('records'))
-    executions_df_grouped.name = 'trades'
-    mkdata = mkdata.merge(executions_df_grouped, 'left', left_index=True, right_index=True)
 
     symbolWidget = widgets.Text(value=str(symbol), description='symbol', disable=True)
 
     fromWidget = widgets.Text(value='', placeholder='yyyymmdd HH:MM:SS', description='From:', disabled=True)
     toWidget = widgets.Text(value='', placeholder='yyyymmdd HH:MM:SS', description='To:', disabled=True)
     time_range_box = widgets.HBox([fromWidget, toWidget])
+    annotate = widgets.Checkbox(value=False, description='annotate')
 
     offsetWidget = widgets.IntSlider(min=0, max=500, step=10, value=60, description='expand_offset')
 
@@ -361,7 +369,7 @@ def trade_review_in_notebook2(symbol=None, mkdata=None, executions: list = None,
     saveFigButton = widgets.Button(description='保存图片')
     saveFigButton.on_click(save_fig)
 
-    def show_data(e_select, offset):
+    def show_data(e_select, offset, annotate):
         nonlocal fig
         s = e_select[0] - dt.timedelta(minutes=offset)
         e = e_select[-1] + dt.timedelta(minutes=offset)
@@ -375,12 +383,12 @@ def trade_review_in_notebook2(symbol=None, mkdata=None, executions: list = None,
         for ma, c in zip(['ma5', 'ma10', 'ma30', 'ma60'], ['r', 'b', 'g', 'y']):
             lines.append(mpf.Line2D(l, temp_mkdata[ma], color=c))
 
-        fig = draw_klines(temp_mkdata, main_chart_lines=lines)
+        fig = draw_klines(temp_mkdata, main_chart_lines=lines, annotate=annotate)
 
-    params = {'e_select': executionSelection, 'offset': offsetWidget}
+    params = {'e_select': executionSelection, 'offset': offsetWidget, 'annotate': annotate}
 
     out = widgets.interactive_output(show_data, params)
-    display(symbolWidget, time_range_box, executionSelection, offsetWidget, saveFigButton, out)
+    display(symbolWidget, time_range_box, annotate, executionSelection, offsetWidget, saveFigButton, out)
 
 
 def trade_review_in_notebook3(symbol, executions: list = None, pnlType='session'):
@@ -407,6 +415,8 @@ def trade_review_in_notebook3(symbol, executions: list = None, pnlType='session'
             if match:
                 open_close_match.append(match)
 
+    ktype = widgets.RadioButtons(options=[('1 min', 1), ('5 min', 5),('15 min', 15), ('30 min', 30), ('60 min', 30)], description='ktype')
+    annotate = widgets.Checkbox(value=False, description='annotate')
     matchSelection = widgets.SelectMultiple(
         options=[(str(m), m) for m in open_close_match],
         rows=20,
@@ -435,7 +445,7 @@ def trade_review_in_notebook3(symbol, executions: list = None, pnlType='session'
 
     hf = HKFuture()
 
-    def show_data(match, expand_offset):
+    def show_data(match, ktype, expand_offset, annotate):
         nonlocal fig
         es = []
         for m in match:
@@ -444,12 +454,12 @@ def trade_review_in_notebook3(symbol, executions: list = None, pnlType='session'
         if not es:
             print('请选择execution')
             return
-        fig = hf.display_trades(symbol, es, expand_offset=expand_offset)
+        fig = hf.display_trades(symbol, es, period=ktype, expand_offset=expand_offset, annotate=annotate)
 
-    params = {'match': matchSelection, 'expand_offset': offsetWidget}
+    params = {'match': matchSelection, 'ktype':ktype, 'expand_offset': offsetWidget, 'annotate': annotate}
 
     out = widgets.interactive_output(show_data, params)
-    display(symbolWidget, matchSelection, offsetWidget, savfig_box, out)
+    display(symbolWidget, matchSelection, ktype, annotate, offsetWidget, savfig_box, out)
 
 
 
