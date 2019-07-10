@@ -53,7 +53,7 @@ def _check_ktype(ktype):
     return f'{_n}{_t}'
 
 
-def draw_klines(df: pd.DataFrame, main_chart_lines=None, sub_chart_lines=None, to_file=None):
+def draw_klines(df: pd.DataFrame, main_chart_lines=None, sub_chart_lines=None, *, annotate=False, to_file=None):
     """
     基础画图方法
     :param df: dataframe->基础需包含['datetime', 'open', 'close', 'high', 'low', 'volume']，
@@ -83,6 +83,8 @@ def draw_klines(df: pd.DataFrame, main_chart_lines=None, sub_chart_lines=None, t
         except IndexError:
             return ''
 
+    data_len = len(data_mat[2])
+
     fig, [ax1, ax2, ax3] = plt.subplots(3, 1, sharex=True)
     fig.set_figheight(300 / 72)
     fig.set_figwidth(1200 / 72)
@@ -94,8 +96,8 @@ def draw_klines(df: pd.DataFrame, main_chart_lines=None, sub_chart_lines=None, t
     ax2.set_title('MACD')
     ax3.set_title('Volume')
     mpf.candlestick2_ochl(ax1, data_mat[1], data_mat[2], data_mat[3], data_mat[4], colordown='#53c156',
-                          colorup='#ff1717', width=0.3, alpha=1)
-    mpf.volume_overlay(ax3, data_mat[1], data_mat[2], data_mat[5], colordown='#53c156', colorup='#ff1717', width=0.3,
+                          colorup='#ff1717', width=min(120 / data_len, 1), alpha=1)
+    mpf.volume_overlay(ax3, data_mat[1], data_mat[2], data_mat[5], colordown='#53c156', colorup='#ff1717', width=min(120 / data_len, 1),
                        alpha=1)
     ax1.grid(True)
     ax2.grid(True)
@@ -111,9 +113,9 @@ def draw_klines(df: pd.DataFrame, main_chart_lines=None, sub_chart_lines=None, t
             ax1.add_line(l)
     else:
         import talib
-        l = range(len(data_mat[2]))
+        l = range(data_len)
         for ma, c in zip([5, 10, 30, 60], ['r', 'b', 'g', 'y']):
-            ma_line = mpf.Line2D(l, talib.MA(data_mat[2].astype(float), ma), color=c)
+            ma_line = mpf.Line2D(l, talib.MA(data_mat[2].astype(float), ma), color=c, linewidth=120 / data_len)
             ax1.add_line(ma_line)
 
     if sub_chart_lines:
@@ -123,14 +125,14 @@ def draw_klines(df: pd.DataFrame, main_chart_lines=None, sub_chart_lines=None, t
         import talib
         dif, dea, macd = talib.MACDEXT(data_mat[2].astype(float), fastperiod=12, fastmatype=1, slowperiod=26, slowmatype=1, signalperiod=9, signalmatype=1)
         macd = macd * 2
-        l = range(len(macd))
-        dif_line = mpf.Line2D(l, dif, color='b')
-        dea_line = mpf.Line2D(l, dea, color='y')
+        l = range(data_len)
+        dif_line = mpf.Line2D(l, dif, color='b', linewidth=120 / data_len)
+        dea_line = mpf.Line2D(l, dea, color='y', linewidth=120 / data_len)
         ax2.add_line(dif_line)
         ax2.add_line(dea_line)
         mpf.candlestick2_ochl(ax2, [0]*len(macd), macd,
                               np.where(macd >= 0, macd, 0), np.where(macd < 0, macd, 0), colordown='#53c156',
-                          colorup='#ff1717', width=0.3, alpha=1)
+                              colorup='#ff1717', width=120 / data_len, alpha=0.7)
 
     if 'trades' in df.columns:
         trades_long_x = []
@@ -140,24 +142,42 @@ def draw_klines(df: pd.DataFrame, main_chart_lines=None, sub_chart_lines=None, t
         trades_short_y = []
         trades_short_s = []
 
+        size_ratio = 100 * 120 / data_len
         for i, (_, tl) in enumerate(df.trades.iteritems()):
             if isinstance(tl, Iterable):
+                long_n = 0
+                short_n = 0
+                total_long = 0
+                total_short = 0
                 for t in tl:
                     if t['direction'] == 'long':
                         trades_long_x.append(i)
                         trades_long_y.append(t['price'])
-                        trades_long_s.append(t['size'] * 100)
+                        trades_long_s.append(t['size'] * size_ratio)
+                        long_n += t['size']
+                        total_long += t['price']
                     elif t['direction'] == 'short':
                         trades_short_x.append(i)
                         trades_short_y.append(t['price'])
-                        trades_short_s.append(t['size'] * 100)
+                        trades_short_s.append(t['size'] * size_ratio)
+                        short_n += t['size']
+                        total_short += t['price']
+                else:
+                    if annotate and long_n:
+                        avg_long_price = total_long/long_n
+                        ax1.annotate(f'+{long_n}@{avg_long_price:.1f}', xy=(i, avg_long_price),
+                                     xytext=(i+0.1, avg_long_price - 0.1))
+                    if annotate and short_n:
+                        avg_short_price = total_short / short_n
+                        ax1.annotate(f'-{short_n}@{avg_short_price:.1f}', xy=(i, avg_short_price),
+                                     xytext=(i + 0.1, avg_short_price + 0.1))
         else:
-            ax1.scatter(trades_long_x, trades_long_y, s=trades_long_s, c='b', marker='^', alpha=0.7)
-            ax1.scatter(trades_short_x, trades_short_y, s=trades_short_s, c='y', marker='v', alpha=0.8)
+            ax1.scatter(trades_long_x, trades_long_y, s=trades_long_s, c='b', marker='^', alpha=1, linewidths=0, zorder=2)
+            ax1.scatter(trades_short_x, trades_short_y, s=trades_short_s, c='y', marker='v', alpha=1, linewidths=0, zorder=2)
 
     if to_file:
         try:
-            fig.savefig(to_file)
+            fig.savefig(to_file, dpi=200)
         except Exception as e:
             print('errSaveFig:', e)
 

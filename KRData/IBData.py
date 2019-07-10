@@ -179,7 +179,7 @@ class IBMarket(metaclass=Singleton):
         return self.to_df(raw_object)
 
     @lru_cache(maxsize=30)
-    def get_bars_from_ib(self, contract: (Contract, str, int), start=None, end=None, persist=False):
+    def get_bars_from_ib(self, contract: (Contract, str, int), barType='1 min', start=None, end=None, persist=False):
         _contract = self.verifyContract(contract)
         if start is None:
             start = self.ib.reqHeadTimeStamp(_contract, 'TRADES', useRTH=False)
@@ -202,7 +202,7 @@ class IBMarket(metaclass=Singleton):
         else:
             barSizeSetting = f'{int(delta.days // (30 * 12) + 1)} Y'
 
-        barlist = self.ib.reqHistoricalData(_contract, end, barSizeSetting, '1 min',
+        barlist = self.ib.reqHistoricalData(_contract, end, barSizeSetting, barType,
                                                'TRADES', useRTH=False, keepUpToDate=False)
 
         if persist:
@@ -332,7 +332,20 @@ class IBTrade(metaclass=Singleton):
 
         return saved_fills
 
-    def display_trades(self, fills, expand_offset=60, mkdata_source='IB', to_file=None):
+    def display_trades(self, fills, period=1, expand_offset=60, mkdata_source='IB', *, annotate=False, to_file=None):
+        """
+
+        :param fills: QuerySet或者Dataframe
+        :param period: [1, 5, 15, 30, 60]
+        :param expand_offset:
+        :param mkdata_source:
+        :param annotate:
+        :param to_file:
+        :return:
+        """
+
+        assert period in [1, 5, 15, 30, 60], 'period必须为[1, 5, 15, 30, 60]中的其中一个'
+
         from .util import draw_klines
 
         if isinstance(fills, QuerySet):
@@ -353,8 +366,7 @@ class IBTrade(metaclass=Singleton):
                 [{'datetime': f.execution.time.replace(second=0) + dt.timedelta(hours=8), 'price': f.execution.price,
                   'size': f.execution.shares, 'direction': 'long' if f.execution.side == 'BOT' else 'short'} for f in
                  fills]).set_index('datetime')
-            executions_df_grouped = executions_df.groupby('datetime').apply(lambda df: df.to_dict('records'))
-            executions_df_grouped.name = 'trades'
+
         elif isinstance(fills, pd.DataFrame):
             conIds = fills.conId.unique()
 
@@ -368,19 +380,22 @@ class IBTrade(metaclass=Singleton):
             start = fills.iloc[0]['datetime'] - dt.timedelta(minutes=expand_offset)
             end = fills.iloc[-1]['datetime'] + dt.timedelta(minutes=expand_offset)
 
-            executions_df = fills[['price', 'size', 'direction']]
-            executions_df.index = fills.datetime.apply(lambda t: t.replace(second=0))
+            executions_df = fills[['datetime', 'price', 'size', 'direction']].set_index('datetime')
             executions_df['direction'] = np.where(executions_df['direction'] == 'BOT', 'long', 'short')
-            executions_df_grouped = executions_df.groupby('datetime').apply(lambda df: df.to_dict('records'))
-            executions_df_grouped.name = 'trades'
+
 
         if mkdata_source == 'IB':
-            mkdata = self._ib_market.get_bars_from_ib(contract, start=start, end=end)
+            barTypeMap = {1: '1 min', 5: '5 mins', 15: '15 mins', 30: '30 mins', 60: '1 hour'}
+            mkdata = self._ib_market.get_bars_from_ib(contract, barType=barTypeMap.get(period, '1 hour'), start=start, end=end)
         elif mkdata_source == 'HK':
             from .HKData import HKFuture
             hf = HKFuture()
             symbol = fills[0].contract.symbol + fills[0].contract.lastTradeDateOrContractMonth[2:6]
-            mkdata = hf.get_bars(symbol, start=start, end=end, queryByDate=False)
+            mkdata = hf.get_bars(symbol, start=start, end=end, ktype=f'{period}min', queryByDate=False)
+
+        executions_df.index = mkdata.asof(executions_df.index)['datetime']
+        executions_df_grouped = executions_df.groupby('datetime').apply(lambda df: df.to_dict('records'))
+        executions_df_grouped.name = 'trades'
 
         import talib
         mkdata['ma5'] = talib.MA(mkdata['close'].values, timeperiod=5)
@@ -390,7 +405,7 @@ class IBTrade(metaclass=Singleton):
 
         market_data = mkdata.merge(executions_df_grouped, 'left', left_index=True, right_index=True)
 
-        return draw_klines(market_data, to_file=to_file)
+        return draw_klines(market_data, annotate=annotate, to_file=to_file)
 
     def __getitem__(self, item: (Contract, str, slice)):
         if isinstance(item, Contract):

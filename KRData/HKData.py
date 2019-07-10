@@ -158,7 +158,7 @@ class HKFuture(BaseData):
 
         return code_daterage
 
-    def display_trades(self, symbol, executions: List[Dict], expand_offset: (int, tuple)=60, to_file=None):
+    def display_trades(self, symbol, executions: List[Dict], period=1, expand_offset: (int, tuple)=60, *, annotate=False, to_file=None):
         """
         交易可视化
         :param symbol: 合约代码，如 HSI1903
@@ -167,6 +167,7 @@ class HKFuture(BaseData):
                 [{'datetime': '20190307 14:16:00', 'price': 28000, 'size': 1, 'direction': 'long'},
                 {'datetime': '20190307 13:01:00', 'price': 28650, 'size': 1, 'direction': 'short'},
                 {'datetime': '20190307 13:01:00', 'price': 28600, 'size': 1, 'direction': 'long'}]
+        :param period: [1, 5, 15, 30, 60]
         :param expand_offset: 基于交易执行数据，行情数据前后延伸分钟数，默认60.也可接受(60, 100)前移60，后移100
         :param to_file: 生成图片文件，默认None则不生成
         :return:
@@ -174,6 +175,8 @@ class HKFuture(BaseData):
         import mpl_finance as mpf
         import talib
         from .util import draw_klines
+
+        assert period in [1, 5, 15, 30, 60], 'period必须为[1, 5, 15, 30, 60]中的其中一个'
 
         executions.sort(key=lambda e: e['datetime'])  # 交易执行排序
         for e in executions:
@@ -185,20 +188,22 @@ class HKFuture(BaseData):
             e_offset = expand_offset[1]
         else:
             s_offset = e_offset = expand_offset
-        start = executions[0]['datetime'] - dt.timedelta(minutes=s_offset)
-        end = executions[-1]['datetime'] + dt.timedelta(minutes=e_offset)
-        market_data = self.get_bars(symbol, start=start, end=end, queryByDate=False)
+        start = executions[0]['datetime'] - dt.timedelta(minutes=s_offset * period)
+        end = executions[-1]['datetime'] + dt.timedelta(minutes=e_offset * period)
+        market_data = self.get_bars(symbol, start=start, end=end, ktype=f'{period}min', queryByDate=False)
+
+        executions_df = pd.DataFrame(executions).set_index('datetime')
+        executions_df.index = market_data.asof(executions_df.index)['datetime']
+        executions_df_grouped = executions_df.groupby('datetime').apply(lambda df: df.to_dict('records'))
+        executions_df_grouped.name = 'trades'
+        market_data = market_data.merge(executions_df_grouped, 'left', left_index=True, right_index=True)
+
         market_data['ma5'] = talib.MA(market_data['close'].values, timeperiod=5)
         market_data['ma10'] = talib.MA(market_data['close'].values, timeperiod=10)
         market_data['ma30'] = talib.MA(market_data['close'].values, timeperiod=30)
         market_data['ma60'] = talib.MA(market_data['close'].values, timeperiod=60)
 
-        executions_df = pd.DataFrame(executions).set_index('datetime')
-        executions_df_grouped = executions_df.groupby('datetime').apply(lambda df: df.to_dict('records'))
-        executions_df_grouped.name = 'trades'
-        market_data = market_data.merge(executions_df_grouped, 'left', left_index=True, right_index=True)
-
-        return draw_klines(market_data, to_file=to_file)
+        return draw_klines(market_data, annotate=annotate, to_file=to_file)
 
     def __get_bars_by_count(self, code, current_dt, bar_counts, ktype, fields):
         col = self._db.get_collection(f'future_{ktype}_')
@@ -316,14 +321,14 @@ class HKFuture(BaseData):
                                             sort=[('datetime', pmg.DESCENDING)])
                     d_aht = [i for i in _d_aht]
                     d = d + d_aht
-                elif dt.time(0, 0) < _bar_before_d['datetime'].time() <= dt.time(2, 0):
+                elif dt.time(0, 0) < _bar_before_d['datetime'].time() <= dt.time(3, 0):
                     _d_aht = self._col.find({'code': code, 'type': '1min',
                                              'datetime': {'$gte': dt.datetime.fromtimestamp(
                                                  _bar_before_d['date_stamp']) - dt.timedelta(hours=6,
                                                                                              minutes=46),
                                                           '$lte': dt.datetime.fromtimestamp(
                                                               _bar_before_d['date_stamp']) + dt.timedelta(
-                                                              hours=2, minutes=0)}},
+                                                              hours=3, minutes=0)}},
                                             _fields,
                                             sort=[('datetime', pmg.DESCENDING)])
                     d_aht = [i for i in _d_aht]
