@@ -10,9 +10,11 @@ from dateutil import parser
 import datetime as dt
 from . import BaseData
 from .util import _check_ktype, load_json_settings, _concat_executions
+from mongoengine import Document, DateTimeField, FloatField, IntField, StringField, register_connection
 import pymongo as pmg
 from collections import OrderedDict
 from typing import Dict, List, Union
+from functools import lru_cache
 import re
 
 
@@ -358,3 +360,71 @@ class HKFuture(BaseData):
         ret = __get_bars_by_daterange(code, start, end, ktype, fields)  # 根据日期范围来查询
 
         return ret
+
+
+class HKMarket:
+    def __init__(self, period='1min'):
+        config = load_json_settings('mongodb_settings.json')
+        if not config:
+            raise Exception('请先配置mongodb')
+
+        PERIOD = ['1min', '5min', '15min', '30min', '60min', '1day']
+        assert period in PERIOD, f'period must be one of {PERIOD}'
+
+        self._MarketData = type(f'HKMarketData_{period}',
+                                (HKMarketDataBaseDocument,),
+                                {'meta': {'collection': f'future_{period}_'}})
+        register_connection('HKFuture', db='HKFuture', host=config['host'], port=config['port'], username=config['user'], password=config['password'], authentication_source='admin')
+
+    def __getitem__(self, item):
+        if isinstance(item, str):
+            query_set = self._MarketData.objects(code=item)
+        elif isinstance(item, slice):
+            date_range_params = {}
+            if item.start:
+                date_range_params['datetime__gte'] = item.start
+
+            if item.stop:
+                date_range_params['datetime__lt'] = item.stop
+
+            query_set = self._MarketData.objects(code=item.step, **date_range_params)
+
+        df = pd.DataFrame(query_set.as_pymongo()).drop('_id', axis=1)\
+            .set_index('datetime', drop=False)[['datetime', 'open', 'high', 'low', 'close', 'volume', 'trade_date']]
+        return df
+
+class HKMarketDataBaseDocument(Document):
+    code = StringField(required=True)
+    datetime = DateTimeField(required=True, unique_with='code')
+    open = FloatField()
+    high = FloatField()
+    low = FloatField()
+    close = FloatField()
+    volume = IntField()
+    trade_date = DateTimeField()
+
+    meta = {'db_alias': 'HKFuture', 'abstract': True}
+
+class HKContractInfo(Document):
+    CODE = StringField(required=True)
+    CLASS_CODE = StringField()
+    EXPIRY_MTH = StringField()
+    DATE = DateTimeField(required=True, unique_with='CODE')
+    EXPIRY_DATE = DateTimeField()
+    CON_SIZE = FloatField()
+    DATE_FROM = DateTimeField()
+    DATE_TO = DateTimeField()
+    Filler = StringField()
+
+    meta = {'db_alias': 'HKFuture', 'collection': 'future_contract_info'}
+
+class HKProductInfo(Document):
+    CLASS_CODE = StringField()
+    DATE = DateTimeField(required=True, unique_with='CLASS_CODE')
+    PROD_NAME = StringField()
+    DATE_FROM = DateTimeField()
+    DATE_TO = DateTimeField()
+    CURRENCY = StringField()
+    MULTIPLIER = FloatField()
+
+    meta = {'db_alias': 'HKFuture', 'collection': 'future_product_info'}

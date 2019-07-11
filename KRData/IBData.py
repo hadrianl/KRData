@@ -174,7 +174,7 @@ class IBMarket(metaclass=Singleton):
         if end is not None:
             filter['datetime__lte'] = end
 
-        raw_object = bar.exclude(['id', 'contract']).filter(**filter)
+        raw_object = bar.filter(**filter)
 
         return self.to_df(raw_object)
 
