@@ -9,10 +9,11 @@ import pandas as pd
 from dateutil import parser
 import datetime as dt
 from . import BaseData
-from .util import _check_ktype, load_json_settings
+from .util import _check_ktype, load_json_settings, _concat_executions
 import pymongo as pmg
 from collections import OrderedDict
-from typing import Dict, List
+from typing import Dict, List, Union
+import re
 
 
 class HKFuture(BaseData):
@@ -178,25 +179,20 @@ class HKFuture(BaseData):
 
         assert period in [1, 5, 15, 30, 60], 'period必须为[1, 5, 15, 30, 60]中的其中一个'
 
-        executions.sort(key=lambda e: e['datetime'])  # 交易执行排序
-        for e in executions:
-            if isinstance(e['datetime'], str):
-                e['datetime'] = parser.parse(e['datetime'])
-            e['datetime'] = e['datetime'].replace(second=0)
         if isinstance(expand_offset, tuple):
             s_offset = expand_offset[0]
             e_offset = expand_offset[1]
         else:
             s_offset = e_offset = expand_offset
-        start = executions[0]['datetime'] - dt.timedelta(minutes=s_offset * period)
-        end = executions[-1]['datetime'] + dt.timedelta(minutes=e_offset * period)
+
+        fet = executions[0]['datetime']
+        let = executions[0]['datetime']
+
+        start = (fet if isinstance(fet, dt.datetime) else parser.parse(fet)) - dt.timedelta(minutes=s_offset * period)
+        end = (let if isinstance(let, dt.datetime) else parser.parse(let)) + dt.timedelta(minutes=e_offset * period)
         market_data = self.get_bars(symbol, start=start, end=end, ktype=f'{period}min', queryByDate=False)
 
-        executions_df = pd.DataFrame(executions).set_index('datetime')
-        executions_df.index = market_data.asof(executions_df.index)['datetime']
-        executions_df_grouped = executions_df.groupby('datetime').apply(lambda df: df.to_dict('records'))
-        executions_df_grouped.name = 'trades'
-        market_data = market_data.merge(executions_df_grouped, 'left', left_index=True, right_index=True)
+        market_data = _concat_executions(market_data, executions)
 
         market_data['ma5'] = talib.MA(market_data['close'].values, timeperiod=5)
         market_data['ma10'] = talib.MA(market_data['close'].values, timeperiod=10)
@@ -204,6 +200,17 @@ class HKFuture(BaseData):
         market_data['ma60'] = talib.MA(market_data['close'].values, timeperiod=60)
 
         return draw_klines(market_data, annotate=annotate, to_file=to_file)
+
+    def __getitem__(self, item: Union[str, slice]):
+        if isinstance(item, str):
+            return self.get_bars(item, queryByDate=False)
+        elif isinstance(item, slice):
+            r = re.match(r'([A-Z]+)(\d{2,})', item.step)
+            if r:
+                return self.get_bars(item.step, start=item.start, end=item.stop, queryByDate=False)
+            else:
+                return self.get_main_contract_bars(item.step, start=item.start, end=item.stop)
+
 
     def __get_bars_by_count(self, code, current_dt, bar_counts, ktype, fields):
         col = self._db.get_collection(f'future_{ktype}_')

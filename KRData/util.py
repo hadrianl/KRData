@@ -10,7 +10,7 @@ from logging.handlers import SMTPHandler
 import logging
 import time
 import sys
-from typing import Iterable
+from typing import Iterable, Union, List
 from pathlib import Path
 import json
 import datetime as dt
@@ -303,14 +303,6 @@ def trade_review_in_notebook2(symbol=None, mkdata=None, period=1, executions: li
         del ibt
     elif mkdata is None and symbol:
         # 在只填写execution的情况下，自动根据source获取数据
-        for e in executions:
-            if isinstance(e['datetime'], str):
-                e['datetime'] = parser.parse(e['datetime'])
-
-            e['datetime'] = e['datetime'].replace(second=0)
-
-        if executions:
-            executions.sort(key=lambda e: e['datetime'])  # 交易执行排序
 
         start = executions[0]['datetime'] - dt.timedelta(minutes=s_offset)
         end = executions[-1]['datetime'] + dt.timedelta(minutes=e_offset)
@@ -327,12 +319,7 @@ def trade_review_in_notebook2(symbol=None, mkdata=None, period=1, executions: li
             mkdata = hf.get_bars(symbol, start=start, end=end, ktype=f'{period}min', queryByDate=False)
             del hf
 
-    executions_df = pd.DataFrame(executions).set_index('datetime')
-    executions_df.index = mkdata.asof(executions_df.index)['datetime']
-    executions_df_grouped = executions_df.groupby('datetime').apply(lambda df: df.to_dict('records'))
-    executions_df_grouped.name = 'trades'
-
-    mkdata = mkdata.merge(executions_df_grouped, 'left', left_index=True, right_index=True)
+    mkdata = _concat_executions(mkdata, executions)
     mkdata['ma5'] = talib.MA(mkdata['close'].values, timeperiod=5)
     mkdata['ma10'] = talib.MA(mkdata['close'].values, timeperiod=10)
     mkdata['ma30'] = talib.MA(mkdata['close'].values, timeperiod=30)
@@ -461,7 +448,21 @@ def trade_review_in_notebook3(symbol, executions: list = None, pnlType='session'
     out = widgets.interactive_output(show_data, params)
     display(symbolWidget, matchSelection, ktype, annotate, offsetWidget, savfig_box, out)
 
+def _concat_executions(market_data: pd.DataFrame, executions: Union[List, pd.DataFrame]):
+    if isinstance(executions, List):
+        executions_df = pd.DataFrame(executions).set_index('datetime')
+    elif isinstance(executions, pd.DataFrame):
+        executions_df = executions.set_index('datetime')
+    else:
+        raise Exception(f'executions只支持格式:{_concat_executions.__annotations__["executions"]}')
 
+    executions_df.index = pd.to_datetime(executions_df.index)
+    executions_df = executions_df.sort_index()
+    executions_df.index = market_data.asof(executions_df.index)['datetime']
+    executions_df_grouped = executions_df.groupby('datetime').apply(lambda df: df.to_dict('records'))
+    executions_df_grouped.name = 'trades'
+    market_data = market_data.merge(executions_df_grouped, 'left', left_index=True, right_index=True)
+    return market_data
 
 class SSLSMTPHandler(SMTPHandler):
     """

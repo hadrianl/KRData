@@ -12,7 +12,7 @@ from mongoengine import *
 from ib_insync import *
 import numpy as np
 import re
-from .util import load_json_settings, Singleton
+from .util import load_json_settings, Singleton, _concat_executions
 from functools import lru_cache
 import warnings
 
@@ -362,10 +362,9 @@ class IBTrade(metaclass=Singleton):
             start = fills[0].execution.time - dt.timedelta(minutes=expand_offset) + dt.timedelta(hours=8)
             end = fills[fills.count() - 1].execution.time + dt.timedelta(minutes=expand_offset) + dt.timedelta(hours=8)
 
-            executions_df = pd.DataFrame(
-                [{'datetime': f.execution.time.replace(second=0) + dt.timedelta(hours=8), 'price': f.execution.price,
+            executions = [{'datetime': f.execution.time + dt.timedelta(hours=8), 'price': f.execution.price,
                   'size': f.execution.shares, 'direction': 'long' if f.execution.side == 'BOT' else 'short'} for f in
-                 fills]).set_index('datetime')
+                 fills]
 
         elif isinstance(fills, pd.DataFrame):
             conIds = fills.conId.unique()
@@ -380,9 +379,8 @@ class IBTrade(metaclass=Singleton):
             start = fills.iloc[0]['datetime'] - dt.timedelta(minutes=expand_offset)
             end = fills.iloc[-1]['datetime'] + dt.timedelta(minutes=expand_offset)
 
-            executions_df = fills[['datetime', 'price', 'size', 'direction']].set_index('datetime')
-            executions_df['direction'] = np.where(executions_df['direction'] == 'BOT', 'long', 'short')
-
+            executions = fills[['datetime', 'price', 'size', 'direction']].set_index('datetime')
+            executions['direction'] = np.where(executions['direction'] == 'BOT', 'long', 'short')
 
         if mkdata_source == 'IB':
             barTypeMap = {1: '1 min', 5: '5 mins', 15: '15 mins', 30: '30 mins', 60: '1 hour'}
@@ -393,9 +391,7 @@ class IBTrade(metaclass=Singleton):
             symbol = fills[0].contract.symbol + fills[0].contract.lastTradeDateOrContractMonth[2:6]
             mkdata = hf.get_bars(symbol, start=start, end=end, ktype=f'{period}min', queryByDate=False)
 
-        executions_df.index = mkdata.asof(executions_df.index)['datetime']
-        executions_df_grouped = executions_df.groupby('datetime').apply(lambda df: df.to_dict('records'))
-        executions_df_grouped.name = 'trades'
+        mkdata = _concat_executions(mkdata, executions)
 
         import talib
         mkdata['ma5'] = talib.MA(mkdata['close'].values, timeperiod=5)
@@ -403,9 +399,7 @@ class IBTrade(metaclass=Singleton):
         mkdata['ma30'] = talib.MA(mkdata['close'].values, timeperiod=30)
         mkdata['ma60'] = talib.MA(mkdata['close'].values, timeperiod=60)
 
-        market_data = mkdata.merge(executions_df_grouped, 'left', left_index=True, right_index=True)
-
-        return draw_klines(market_data, annotate=annotate, to_file=to_file)
+        return draw_klines(mkdata, annotate=annotate, to_file=to_file)
 
     def __getitem__(self, item: (Contract, str, slice)):
         if isinstance(item, Contract):
