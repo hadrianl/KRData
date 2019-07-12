@@ -6,7 +6,7 @@
 
 import pymongo as pmg
 
-__version__ = '5.6'
+__version__ = '5.7'
 
 
 class BaseData:

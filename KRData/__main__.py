@@ -107,6 +107,15 @@ def save_ib_ticker(dbhost, dbport, user, password, ibhost, ibport, clientid, ins
     data_recorder.RecordTicker(ins_list)
 
 
+@click.command()
+def visual():
+    from .Visualization import create_qapp, KLineWidget
+    vapp = create_qapp()
+    kw = KLineWidget()
+    kw.showMaximized()
+    vapp.exec_()
+
 cli.add_command(save_ib_trade)
 cli.add_command(save_ctp_ticker)
 cli.add_command(save_ib_ticker)
+cli.add_command(visual)

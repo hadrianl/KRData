@@ -173,12 +173,13 @@ def draw_klines(df: pd.DataFrame, main_chart_lines=None, sub_chart_lines=None, *
                         ax1.annotate(f'-{short_n}@{avg_short_price:.1f}', xy=(i, avg_short_price),
                                      xytext=(i + 0.1, avg_short_price + 0.1))
         else:
-            ax1.scatter(trades_long_x, trades_long_y, s=trades_long_s, c=DEFALUT_CHART_COLOR['longMark'], marker='^', alpha=1, linewidths=0, zorder=2)
-            ax1.scatter(trades_short_x, trades_short_y, s=trades_short_s, c=DEFALUT_CHART_COLOR['shortMark'], marker='v', alpha=1, linewidths=0, zorder=2)
+            ax1.scatter(trades_long_x, trades_long_y, s=trades_long_s, color=DEFALUT_CHART_COLOR['longMark'],
+                        marker='^', alpha=0.8, linewidths=0, zorder=2)
+            ax1.scatter(trades_short_x, trades_short_y, s=trades_short_s, color='', edgecolors=DEFALUT_CHART_COLOR['shortMark'], marker='v', alpha=0.8, linewidths=1, zorder=2)
 
     if to_file:
         try:
-            fig.savefig(to_file, dpi=200)
+            fig.savefig(to_file, dpi=DEFALUT_CHART_PARAMS['dpi'], figsize=(120,30))
         except Exception as e:
             print('errSaveFig:', e)
 
@@ -579,7 +580,11 @@ DEFALUT_CHART_COLOR = {'ma5': 'r', 'ma10': 'b', 'ma30': 'g', 'ma60': 'm',
                        'dif': 'b', 'dea': 'm',
                        'longMark': 'b', 'shortMark': 'm'}
 
+DEFALUT_CHART_PARAMS = {'dpi': 200, }
+
 DEFALUT_CHART_COLOR.update(load_json_settings('draw_klines_settings.json').get('color', {}))
+DEFALUT_CHART_PARAMS.update(load_json_settings('draw_klines_settings.json').get('params', {}))
+
 
 CODE_SUFFIX = ['1701', '1702', '1703', '1704', '1705', '1706', '1707', '1708', '1709', '1710', '1711', '1712',
                '1801', '1802', '1803', '1804', '1805', '1806', '1807', '1808', '1809', '1810', '1811', '1812']

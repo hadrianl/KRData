@@ -10,7 +10,7 @@ from dateutil import parser
 import datetime as dt
 from . import BaseData
 from .util import _check_ktype, load_json_settings, _concat_executions
-from mongoengine import Document, DateTimeField, FloatField, IntField, StringField, register_connection
+from mongoengine import Document, DateTimeField, FloatField, IntField, StringField, register_connection, QuerySet
 import pymongo as pmg
 from collections import OrderedDict
 from typing import Dict, List, Union
@@ -376,7 +376,7 @@ class HKMarket:
                                 {'meta': {'collection': f'future_{period}_'}})
         register_connection('HKFuture', db='HKFuture', host=config['host'], port=config['port'], username=config['user'], password=config['password'], authentication_source='admin')
 
-    def __getitem__(self, item):
+    def __getitem__(self, item: Union[str, slice]) -> QuerySet:
         if isinstance(item, str):
             query_set = self._MarketData.objects(code=item)
         elif isinstance(item, slice):
@@ -388,8 +388,14 @@ class HKMarket:
                 date_range_params['datetime__lt'] = item.stop
 
             query_set = self._MarketData.objects(code=item.step, **date_range_params)
+        else:
+            raise Exception(f'item类型应为{Union[str, slice]}')
 
-        df = pd.DataFrame(query_set.as_pymongo()).drop('_id', axis=1)\
+        return query_set
+
+    @staticmethod
+    def to_df(query_set: QuerySet) -> pd.DataFrame:
+        df = pd.DataFrame(query_set.as_pymongo()).drop('_id', axis=1) \
             .set_index('datetime', drop=False)[['datetime', 'open', 'high', 'low', 'close', 'volume', 'trade_date']]
         return df
 

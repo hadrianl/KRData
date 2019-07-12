@@ -196,7 +196,11 @@ class IBMarket(metaclass=Singleton):
         if total_seconds < 86400:
             barSizeSetting = f'{int(delta.total_seconds() // 60 * 60 + 60)} S'
         elif total_seconds <= 86400 * 30:
-            barSizeSetting = f'{int(min(delta.days + 1, 30))} D'
+            if end and end.time() >= dt.time(17, 15):
+                offset = 2
+            else:
+                offset = 1
+            barSizeSetting = f'{int(min(delta.days + offset, 30))} D'
         elif total_seconds < 86400 * 30 * 6:
             barSizeSetting = f'{int(min(delta.days // 30 + 1, 6))} M'
         else:
@@ -384,6 +388,7 @@ class IBTrade(metaclass=Singleton):
 
         if mkdata_source == 'IB':
             barTypeMap = {1: '1 min', 5: '5 mins', 15: '15 mins', 30: '30 mins', 60: '1 hour'}
+
             mkdata = self._ib_market.get_bars_from_ib(contract, barType=barTypeMap.get(period, '1 hour'), start=start, end=end)
         elif mkdata_source == 'HK':
             from .HKData import HKFuture
