@@ -95,9 +95,10 @@ def draw_klines(df: pd.DataFrame, main_chart_lines=None, sub_chart_lines=None, *
     ax1.set_title('KLine', fontsize='large', fontweight='bold')
     ax2.set_title('MACD')
     ax3.set_title('Volume')
-    mpf.candlestick2_ochl(ax1, data_mat[1], data_mat[2], data_mat[3], data_mat[4], colordown='#53c156',
-                          colorup='#ff1717', width=min(120 / data_len, 1), alpha=1)
-    mpf.volume_overlay(ax3, data_mat[1], data_mat[2], data_mat[5], colordown='#53c156', colorup='#ff1717', width=min(120 / data_len, 1),
+    mpf.candlestick2_ochl(ax1, data_mat[1], data_mat[2], data_mat[3], data_mat[4], colordown=DEFALUT_CHART_COLOR['barDown'],
+                          colorup=DEFALUT_CHART_COLOR['barUp'], width=min(120 / data_len, 1), alpha=1)
+    mpf.volume_overlay(ax3, data_mat[1], data_mat[2], data_mat[5], colordown=DEFALUT_CHART_COLOR['barDown'],
+                       colorup=DEFALUT_CHART_COLOR['barUp'], width=min(120 / data_len, 1),
                        alpha=1)
     ax1.grid(True)
     ax2.grid(True)
@@ -114,8 +115,8 @@ def draw_klines(df: pd.DataFrame, main_chart_lines=None, sub_chart_lines=None, *
     else:
         import talib
         l = range(data_len)
-        for ma, c in zip([5, 10, 30, 60], ['r', 'b', 'g', 'y']):
-            ma_line = mpf.Line2D(l, talib.MA(data_mat[2].astype(float), ma), color=c, linewidth=120 / data_len)
+        for p in [5, 10, 30, 60]:
+            ma_line = mpf.Line2D(l, talib.MA(data_mat[2].astype(float), p), color=DEFALUT_CHART_COLOR[f'ma{p}'], linewidth=120 / data_len)
             ax1.add_line(ma_line)
 
     if sub_chart_lines:
@@ -126,13 +127,13 @@ def draw_klines(df: pd.DataFrame, main_chart_lines=None, sub_chart_lines=None, *
         dif, dea, macd = talib.MACDEXT(data_mat[2].astype(float), fastperiod=12, fastmatype=1, slowperiod=26, slowmatype=1, signalperiod=9, signalmatype=1)
         macd = macd * 2
         l = range(data_len)
-        dif_line = mpf.Line2D(l, dif, color='b', linewidth=120 / data_len)
-        dea_line = mpf.Line2D(l, dea, color='y', linewidth=120 / data_len)
+        dif_line = mpf.Line2D(l, dif, color=DEFALUT_CHART_COLOR['dif'], linewidth=120 / data_len)
+        dea_line = mpf.Line2D(l, dea, color=DEFALUT_CHART_COLOR['dea'], linewidth=120 / data_len)
         ax2.add_line(dif_line)
         ax2.add_line(dea_line)
         mpf.candlestick2_ochl(ax2, [0]*len(macd), macd,
-                              np.where(macd >= 0, macd, 0), np.where(macd < 0, macd, 0), colordown='#53c156',
-                              colorup='#ff1717', width=120 / data_len, alpha=0.7)
+                              np.where(macd >= 0, macd, 0), np.where(macd < 0, macd, 0), colordown=DEFALUT_CHART_COLOR['barDown'],
+                              colorup=DEFALUT_CHART_COLOR['barUp'], width=120 / data_len, alpha=0.7)
 
     if 'trades' in df.columns:
         trades_long_x = []
@@ -172,8 +173,8 @@ def draw_klines(df: pd.DataFrame, main_chart_lines=None, sub_chart_lines=None, *
                         ax1.annotate(f'-{short_n}@{avg_short_price:.1f}', xy=(i, avg_short_price),
                                      xytext=(i + 0.1, avg_short_price + 0.1))
         else:
-            ax1.scatter(trades_long_x, trades_long_y, s=trades_long_s, c='b', marker='^', alpha=1, linewidths=0, zorder=2)
-            ax1.scatter(trades_short_x, trades_short_y, s=trades_short_s, c='y', marker='v', alpha=1, linewidths=0, zorder=2)
+            ax1.scatter(trades_long_x, trades_long_y, s=trades_long_s, c=DEFALUT_CHART_COLOR['longMark'], marker='^', alpha=1, linewidths=0, zorder=2)
+            ax1.scatter(trades_short_x, trades_short_y, s=trades_short_s, c=DEFALUT_CHART_COLOR['shortMark'], marker='v', alpha=1, linewidths=0, zorder=2)
 
     if to_file:
         try:
@@ -345,8 +346,6 @@ def trade_review_in_notebook2(symbol=None, mkdata=None, period=1, executions: li
     fig = None
 
     def save_fig(b):
-        print(b)
-        print(fig)
         if fig is not None:
             try:
                 fig.savefig('fig.png')
@@ -365,12 +364,8 @@ def trade_review_in_notebook2(symbol=None, mkdata=None, period=1, executions: li
         toWidget.value = str(e)
 
         temp_mkdata = mkdata[s:e]
-        l = range(len(temp_mkdata))
-        lines = []
-        for ma, c in zip(['ma5', 'ma10', 'ma30', 'ma60'], ['r', 'b', 'g', 'y']):
-            lines.append(mpf.Line2D(l, temp_mkdata[ma], color=c))
 
-        fig = draw_klines(temp_mkdata, main_chart_lines=lines, annotate=annotate)
+        fig = draw_klines(temp_mkdata, annotate=annotate)
 
     params = {'e_select': executionSelection, 'offset': offsetWidget, 'annotate': annotate}
 
@@ -578,6 +573,13 @@ def save_json_settings(filename: str, data: dict):
         json.dump(data, f, indent=4)
 
 
+
+DEFALUT_CHART_COLOR = {'ma5': 'r', 'ma10': 'b', 'ma30': 'g', 'ma60': 'm',
+                       'barUp': '#ff1717', 'barDown': '#53c156',
+                       'dif': 'b', 'dea': 'm',
+                       'longMark': 'b', 'shortMark': 'm'}
+
+DEFALUT_CHART_COLOR.update(load_json_settings('draw_klines_settings.json').get('color', {}))
 
 CODE_SUFFIX = ['1701', '1702', '1703', '1704', '1705', '1706', '1707', '1708', '1709', '1710', '1711', '1712',
                '1801', '1802', '1803', '1804', '1805', '1806', '1807', '1808', '1809', '1810', '1811', '1812']
