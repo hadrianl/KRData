@@ -64,7 +64,12 @@ class IBMarket(metaclass=Singleton):
 
         ib_mkdata_config = load_json_settings('ib_mkdata_settings.json')
         if ib_mkdata_config:
-            self.connectIB(ib_mkdata_config['host'], ib_mkdata_config['port'], ib_mkdata_config['clientId'])
+            try:
+                self.connectIB(ib_mkdata_config['host'], ib_mkdata_config['port'], ib_mkdata_config['clientId'])
+            except Exception as e:
+                warnings.warn(f'IB未连接->{e}, save_mkData_from_IB, get_bars_from_ib, verifyContract 不可用')
+                self.ib.disconnect()
+
         else:
             warnings.warn('未配置ib_mkdata_settings，需要使用connectDB来连接[IBMarket]')
 
@@ -299,14 +304,18 @@ class IBTrade(metaclass=Singleton):
 
         ib_config = load_json_settings('ib_settings.json')
         if ib_config:
-            self.connectIB(ib_config['host'], ib_config['port'], ib_config['clientId'])
+            try:
+                self.connectIB(ib_config['host'], ib_config['port'], ib_config['clientId'])
+            except Exception as e:
+                warnings.warn(f'IB未连接->{e}, save_fill_from_IB不可用')
+                self.ib.disconnect()
         else:
             warnings.warn('未配置ib_settings，需要使用connectDB来连接[IBMarket]')
 
     def connectDB(self, username, password, host='192.168.2.226', port=27017):
         register_connection('IB', db='IB', host=host, port=port, username=username, password=password, authentication_source='admin')
 
-        if self.account is not None:
+        if self.account:
             self._objects = self.IBFill.objects(execution__acctNumber=self.account)
         else:
             self._objects = self.IBFill.objects

@@ -108,10 +108,11 @@ def save_ib_ticker(dbhost, dbport, user, password, ibhost, ibport, clientid, ins
 
 
 @click.command()
-def visual():
+@click.option('--review_mode', default='live', type=click.Choice(['live','backtest']))
+def visual(review_mode):
     from .Visualization import create_qapp, KLineWidget
     vapp = create_qapp()
-    kw = KLineWidget()
+    kw = KLineWidget(review_mode=review_mode)
     kw.showMaximized()
     vapp.exec_()
 

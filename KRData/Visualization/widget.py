@@ -19,6 +19,9 @@ from functools import partial
 from collections import deque
 from .baseQtItems import KeyWraper, CandlestickItem, MyStringAxis, Crosshair, CustomViewBox
 from ..HKData import HKMarket
+from ..IBData import IBMarket, IBTrade
+from ..util import _concat_executions
+from typing import Iterable
 import talib
 from dateutil import parser
 
@@ -44,17 +47,25 @@ class KLineWidget(KeyWraper):
 
     # 是否完成了历史数据的读取
     initCompleted = False
-    signal_bar_update = QtCore.pyqtSignal(Event)
-    signal_trade_update = QtCore.pyqtSignal(Event)
-    signal_order_update = QtCore.pyqtSignal(Event)
 
     # ----------------------------------------------------------------------
-    def __init__(self, data_source='HK'):
+    def __init__(self, data_source='HK', review_mode='live', **kwargs):
         """Constructor"""
         super().__init__()
 
+        self.data_source = data_source
+        self.period = kwargs.get('period', '1min')
+
         if data_source == 'HK':
-            self._querier = HKMarket()
+            self._querier = HKMarket(self.period)
+        elif data_source == 'IB':
+            self._querier = IBMarket()
+
+        self.review_mode = review_mode
+        if review_mode == 'backtest':
+            self.executions = kwargs.get('executions', [])
+        else:
+            self.executions = []
 
 
         self.raw_data = None
@@ -135,14 +146,15 @@ class KLineWidget(KeyWraper):
         # 设置界面
         self.vb = QVBoxLayout()
 
-        self.symbol_line = QLineEdit("HSI1906")
+        self.symbol_line = QLineEdit("")
+        self.symbol_line.setPlaceholderText('输入产品代码如: HSI1907或者369009605')
         # self.symbol_line.returnPressed.connect(self.subscribe) # todo
 
         self.interval_combo = QComboBox()
         for inteval in ['1min', '5min', '15min', '30min', '60min', '1day']:
             self.interval_combo.addItem(inteval)
 
-        self.interval_combo.currentTextChanged.connect(self.change_querier)
+        self.interval_combo.currentTextChanged.connect(self.change_querier_period)
 
         self.datetime_from = QDateTimeEdit()
         self.datetime_to = QDateTimeEdit()
@@ -150,8 +162,36 @@ class KLineWidget(KeyWraper):
         self.datetime_to.setDisplayFormat('yyyy-MM-dd HH:mm:ss')
         self.datetime_from.setCalendarPopup(True)
         self.datetime_to.setCalendarPopup(True)
-        self.datetime_from.setDateTime(dt.datetime(2019, 6, 15))
-        self.datetime_to.setDateTime(dt.datetime(2019, 6, 20))
+        now = dt.datetime.now()
+        self.datetime_from.setDateTime(now - dt.timedelta(days=1))
+        self.datetime_to.setDateTime(now)
+        self.account_line = QLineEdit('')
+
+        def sourceState(btn):
+            if btn.text() == 'HK':
+                self._querier = HKMarket(period=self.interval_combo.currentText())
+            elif btn.text() == 'IB':
+                self._querier = IBMarket()
+
+            self.data_source = btn.text()
+
+        source_layout = QHBoxLayout()
+        self.source_HK_btn = QRadioButton('HK')
+        self.source_HK_btn.setChecked(True)
+        self.source_HK_btn.toggled.connect(lambda: sourceState(self.source_HK_btn))
+        self.source_IB_btn = QRadioButton('IB')
+        self.source_IB_btn.setToolTip('使用IB查询已过期合约，只能用IB的产品代号如369009605')
+        self.source_IB_btn.toggled.connect(lambda: sourceState(self.source_IB_btn))
+        source_layout.addWidget(self.source_HK_btn)
+        source_layout.addWidget(self.source_IB_btn)
+
+        if self.review_mode == 'backtest':
+            self.source_HK_btn.setEnabled(False)
+            self.source_HK_btn.setHidden(True)
+            self.source_IB_btn.setEnabled(False)
+            self.source_IB_btn.setHidden(True)
+            self.account_line.setEnabled(False)
+            self.account_line.setHidden(True)
 
         self.query_btn = QPushButton('查询')
         self.query_btn.clicked.connect(self.query_data)
@@ -162,22 +202,44 @@ class KLineWidget(KeyWraper):
         form.addRow("K线周期", self.interval_combo)
         form.addRow('FROM:', self.datetime_from)
         form.addRow( 'TO:', self.datetime_to)
+        if self.review_mode == 'live':
+            form.addRow('ACCOUNT:', self.account_line)
+            form.addRow('SOURCE:', source_layout)
+        elif self.review_mode == 'backtest':
+            self.executions_file_btn = QPushButton('读取成交记录')
+            self.executions_file_btn.clicked.connect(self.open_executions_file)
+            form.addRow(self.executions_file_btn)
+
         form.addRow(self.query_btn)
+
 
         self.vb.addLayout(form)
 
         self.vb.addWidget(self.pw)
         self.setLayout(self.vb)
         self.resize(1300, 700)
-        self.signal_bar_update.connect(self.process_bar_event)
-        self.signal_trade_update.connect(self.process_trade_event)
-        self.signal_order_update.connect(self.process_order_event)
         # 初始化完成
         self.initCompleted = True
-        self.query_data()
-
+        # self.query_data()
 
         # ----------------------------------------------------------------------
+    def open_executions_file(self):
+        fname = QFileDialog.getOpenFileName(self, '选择交易文件', './')
+        if fname[0]:
+            try:
+                import pickle
+                with open(fname[0], 'rb') as f:
+                    self.executions = pickle.load(f)
+            finally:
+                if isinstance(self.executions, Iterable):
+                    self.executions.sort(key=lambda t: t['datetime'])
+                    start = self.executions[0]['datetime'] if isinstance(self.executions[0]['datetime'], dt.datetime) else parser.parse(self.executions[0]['datetime'])
+                    end = self.executions[-1]['datetime'] if isinstance(self.executions[-1]['datetime'],
+                                                                         dt.datetime) else parser.parse(
+                        self.executions[-1]['datetime'])
+                    self.datetime_from.setDateTime(start - dt.timedelta(minutes=120))
+                    self.datetime_to.setDateTime(end + dt.timedelta(minutes=120))
+                    self.query_data()
 
     # def subscribe(self):
     #     if self.symbol != self.symbol_line.text():
@@ -187,82 +249,46 @@ class KLineWidget(KeyWraper):
     #         self._query_set = self._querier[::self.symbol]
 
     def query_data(self):
-        self.loadData(self.datetime_from.dateTime().toPyDateTime(), self.datetime_to.dateTime().toPyDateTime())
+        start = self.datetime_from.dateTime().toPyDateTime()
+        end = self.datetime_to.dateTime().toPyDateTime()
+        symbol = self.symbol_line.text()
+
+        if self.data_source == 'HK':
+            query_set = self._querier[start:end:symbol]
+            if query_set.count() == 0:
+                return
+            datas = self._querier.to_df(query_set)
+
+        elif self.data_source == 'IB':
+            contract = self._querier.verifyContract(symbol)
+            barType = {'1min': '1 min', '5min': '5 mins', '15min': '15 mins', '30min': '30 mins', '60min': '60 mins', '1day': '1 day'}.get(self.period,'1 min')
+            datas = self._querier.get_bars_from_ib(contract, barType=barType, start=start, end=end)
+
+
+        if self.review_mode == 'backtest':
+            executions = self.executions
+        elif self.review_mode == 'live':
+            acc_id = self.account_line.text()
+            if acc_id:
+                fills = IBTrade(acc_id)[start:end:symbol]
+                fills = fills.order_by('execution.time')
+
+                executions = [{'datetime': f.execution.time + dt.timedelta(hours=8), 'price': f.execution.price,
+                      'size': f.execution.shares, 'direction': 'long' if f.execution.side == 'BOT' else 'short'} for f in
+                     fills]
+            else:
+                executions = []
+
+        if executions:
+            datas = _concat_executions(datas, executions)
+
+        self.loadData(datas)
         self.refreshAll()
 
-    def change_querier(self, period):
-        print(period)
-        self._querier = HKMarket(period=period)
-
-    def init_listTrade(self):
-        all_trades = self.main_engine.get_all_trades()
-        trades = [t for t in all_trades if t.vt_symbol == self.vt_symbol]
-
-        for t in trades:
-            # t_time = parser.parse(t.time)
-            t_time = t.time
-            for i, _time in enumerate(self.axisTime.x_strings):
-                timedelta = (t_time - _time).total_seconds()
-                if 0 <= timedelta < 60:
-                    time_int = i
-                    if any(self.listTrade):
-                        self.listTrade.resize(len(self.listTrade) + 1, refcheck=0)
-                        self.listTrade[-1] = (time_int, t.direction.value, t.price, t.volume)
-                    else:
-                        self.listTrade = np.rec.array([(time_int, t.direction.value, t.price, t.volume)], \
-                                                      names=('time_int', 'direction', 'price', 'volume'))
-
-    def init_dictOrder(self):
-        all_orders = self.main_engine.get_all_orders()
-        for o in all_orders:
-            if o.vt_symbol == self.vt_symbol:
-                self.dictOrder[o.vt_orderid] = o
-
-    def process_bar_event(self, event: Event):
-        bar = event.data
-        self.onBar(bar)
-        if len(self.datas) >= self.barCount:
-
-            self.index = len(self.datas)
-            vRange = self.pwKL.getViewBox().viewRange()
-            xmax = max(0, int(vRange[0][1]))
-            if xmax + 10 >= self.index or xmax <= self.countK:
-                self.plotAll(False, 0, len(self.datas))
-                self.updateAll()
-                self.crosshair.signal.emit((None, None))
-
-        elif len(self.datas) >= self.barCount - 1:
-            self.init_listTrade()
-            self.init_dictOrder()
-            self.plotTradeMark()
-            self.plotOrderMarkLine()
-
-    def process_trade_event(self, event: Event):
-        trade = event.data
-        if trade.vt_symbol != self.vt_symbol:
-            return
-
-        timedelta = (trade.time - self.datas[-1].datetime).total_seconds()
-        time_int = len(self.datas) - (timedelta // 60 + 1)
-        if any(self.listTrade):
-            self.listTrade.resize(len(self.listTrade) + 1, refcheck=0)
-            self.listTrade[-1] = (time_int, trade.direction.value, trade.price, trade.volume)
-        else:
-            self.listTrade = np.rec.array([(time_int, trade.direction.value, trade.price, trade.volume)], \
-                     names=('time_int', 'direction', 'price', 'volume'))
-
-        self.plotTradeMark()
-        self.refreshAll(True, False)
-
-    def process_order_event(self, event: Event):
-        order = event.data
-        if order.vt_symbol != self.vt_symbol:
-            return
-
-        self.dictOrder[order.vt_orderid] = order
-
-        self.plotOrderMarkLine()
-        self.refreshAll(True, False)
+    def change_querier_period(self, period):
+        self.period = period
+        if self.data_source == 'HK':
+            self._querier = HKMarket(period=period)
 
     def makePI(self, name):
         """生成PlotItem对象"""
@@ -315,7 +341,7 @@ class KLineWidget(KeyWraper):
         self.pwInd = self.makePI('_'.join([self.windowId, 'PlotInd']))
         self.curveDif = self.pwInd.plot(pen='w', name='dif')
         self.curveDea = self.pwInd.plot(pen='y', name='dea')
-        self.barMacd = pg.BarGraphItem(width=0.5, name='macd')
+        self.barMacd = pg.BarGraphItem(x=[0], height=[0], width=0.5, name='macd')
         self.pwInd.addItem(self.barMacd)
         self.lay_KL.nextRow()
         self.lay_KL.addItem(self.pwInd)
@@ -336,6 +362,7 @@ class KLineWidget(KeyWraper):
             for curve in self.curveMAs:
                 curve.setData(self.listMA[curve.name()][xmin:xmax])
             self.plotMark()  # 显示开平仓信号位置
+            self.plotTradeMark()
 
     # ----------------------------------------------------------------------
     def plotInd(self, xmin=0, xmax=-1):
@@ -392,12 +419,12 @@ class KLineWidget(KeyWraper):
             self.pwKL.removeItem(arrow)
 
         for t in self.listTrade:
-            if t.direction == '多':
-                arrow = pg.ArrowItem(pos=(t.time_int, t.price), angle=90, brush=(255, 0, 0))
+            if t.direction == 'long':
+                arrow = pg.ArrowItem(pos=(t.time_int, t.price), angle=90, brush='b')
                 self.pwKL.addItem(arrow)
                 self.tradeArrows.append(arrow)
-            elif t.direction == '空':
-                arrow = pg.ArrowItem(pos=(t.time_int, t.price), angle=-90, brush=(0, 255, 0))
+            elif t.direction == 'short':
+                arrow = pg.ArrowItem(pos=(t.time_int, t.price), angle=-90, brush='y')
                 self.pwKL.addItem(arrow)
                 self.tradeArrows.append(arrow)
 
@@ -713,19 +740,13 @@ class KLineWidget(KeyWraper):
         return newBar
 
     # ----------------------------------------------------------------------
-    def loadData(self, start, end, trades=None, sigs=None):
+    def loadData(self, datas: pd.DataFrame,  trades=None, sigs=None):
         """
         载入pandas.DataFrame数据
         datas : 数据格式，cols : datetime, open, close, low, high
         """
         # 设置中心点时间
         # 绑定数据，更新横坐标映射，更新Y轴自适应函数，更新十字光标映射
-
-        symbol = self.symbol_line.text()
-        query_set = self._querier[start:end:symbol]
-        if query_set.count() == 0:
-            return
-        datas = self._querier.to_df(query_set)
 
         for p in DEFAULT_MA:
             datas[f'ma{p}'] = talib.MA(datas['close'].values, p)
@@ -749,7 +770,15 @@ class KLineWidget(KeyWraper):
         self.listMACD = datas[['time_int', 'dif', 'dea', 'macd']].to_records(False)
         # self.listOpenInterest = list(datas['openInterest'])
         self.listSig = [0] * (len(self.datas) - 1) if sigs is None else sigs
-        # self.listTrade = trades[['time_int', 'direction', 'price', 'volume']].to_records(False)
+        if 'trades' in datas.columns:
+            trades = []
+            for _, row in datas.iterrows():
+                if isinstance(row['trades'], Iterable):
+                    for t in row['trades']:
+                        trades.append([row['time_int'], t['direction'], t['price'], t['size']])
+            else:
+                if trades:
+                    self.listTrade = pd.DataFrame(trades, columns=['time_int', 'direction', 'price', 'size']).to_records(False)
         # 成交量颜色和涨跌同步，K线方向由涨跌决定
         datas0 = pd.DataFrame()
         datas0['open'] = datas.apply(lambda x: 0 if x['close'] >= x['open'] else x['volume'], axis=1)
@@ -758,6 +787,8 @@ class KLineWidget(KeyWraper):
         datas0['high'] = datas['volume']
         datas0['time_int'] = np.array(range(len(datas.index)))
         self.listVol = datas0[['time_int', 'open', 'close', 'low', 'high']].to_records(False)
+
+
 
     # ----------------------------------------------------------------------
     def refreshAll(self, redraw=True, update=False):
