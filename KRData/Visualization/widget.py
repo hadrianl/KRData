@@ -88,6 +88,7 @@ class KLineWidget(KeyWraper):
         self.dictOrder = {}
         self.arrows = []
         self.tradeArrows = []
+        # self.tradeTexts = []
         self.orderLines = {}
 
         # 所有K线上信号图
@@ -154,6 +155,11 @@ class KLineWidget(KeyWraper):
             self.interval_combo.addItem(inteval)
 
         self.interval_combo.currentTextChanged.connect(self.change_querier_period)
+        data_params_layout = QHBoxLayout()
+        data_params_layout.addWidget(self.symbol_line)
+        data_params_layout.addWidget(self.interval_combo)
+        data_params_layout.addStretch()
+
 
         self.datetime_from = QDateTimeEdit()
         self.datetime_to = QDateTimeEdit()
@@ -164,6 +170,10 @@ class KLineWidget(KeyWraper):
         now = dt.datetime.now()
         self.datetime_from.setDateTime(now - dt.timedelta(days=1))
         self.datetime_to.setDateTime(now)
+        timerange_layout = QHBoxLayout()
+        timerange_layout.addWidget(self.datetime_from)
+        timerange_layout.addWidget(self.datetime_to)
+        timerange_layout.addStretch()
         self.account_line = QLineEdit('')
 
         def sourceState(btn):
@@ -183,6 +193,7 @@ class KLineWidget(KeyWraper):
         self.source_IB_btn.toggled.connect(lambda: sourceState(self.source_IB_btn))
         source_layout.addWidget(self.source_HK_btn)
         source_layout.addWidget(self.source_IB_btn)
+        source_layout.addStretch()
 
         if self.review_mode == 'backtest':
             self.source_HK_btn.setEnabled(False)
@@ -197,10 +208,8 @@ class KLineWidget(KeyWraper):
 
         form = QFormLayout()
 
-        form.addRow("代码", self.symbol_line)
-        form.addRow("K线周期", self.interval_combo)
-        form.addRow('FROM:', self.datetime_from)
-        form.addRow( 'TO:', self.datetime_to)
+        form.addRow(data_params_layout)
+        form.addRow('TIME:', timerange_layout)
         if self.review_mode == 'live':
             form.addRow('ACCOUNT:', self.account_line)
             form.addRow('SOURCE:', source_layout)
@@ -277,8 +286,6 @@ class KLineWidget(KeyWraper):
                      fills]
             else:
                 executions = []
-        
-        print(executions)
 
         if executions:
             datas = _concat_executions(datas, executions)
@@ -421,14 +428,15 @@ class KLineWidget(KeyWraper):
 
         for t in self.listTrade:
             if t.direction == 'long':
-                arrow = pg.ArrowItem(pos=(t.time_int, t.price), angle=90, brush='b')
+                arrow = pg.ArrowItem(pos=(t.time_int, t.price), angle=90, brush='b', headLen=15 * t.size)
+                # text = pg.TextItem(f'{t.size}@{t.price}', color='b', anchor=(t.time_int, t.price), rotateAxis=-45)
                 self.pwKL.addItem(arrow)
                 self.tradeArrows.append(arrow)
             elif t.direction == 'short':
-                arrow = pg.ArrowItem(pos=(t.time_int, t.price), angle=-90, brush='y')
+                arrow = pg.ArrowItem(pos=(t.time_int, t.price), angle=-90, brush='y',  headLen=15 * t.size)
+                # text = pg.TextItem(f'{t.size}@{t.price}', color='y', anchor=(t.time_int, t.price), rotateAxis=45)
                 self.pwKL.addItem(arrow)
                 self.tradeArrows.append(arrow)
-
     def plotMark(self):
         """显示开平仓信号"""
         # 检查是否有数据
@@ -692,53 +700,6 @@ class KLineWidget(KeyWraper):
         """刷新买卖信号"""
         self.listSig = sig
         self.plotMark()
-
-    # ----------------------------------------------------------------------
-    def onBar(self, bar):
-        """
-        新增K线数据,K线播放模式
-        """
-        # 是否需要更新K线
-        newBar = False if len(self.datas) > 0 and bar.datetime == self.datas[-1].datetime else True
-        nrecords = len(self.datas) if newBar else len(self.datas) - 1
-        # bar.openInterest = np.random.randint(0,
-        #                                      3) if bar.openInterest == np.inf or bar.openInterest == -np.inf else bar.openInterest
-        openInterest = 0
-        recordVol = (nrecords, abs(bar.volume), 0, 0, abs(bar.volume)) if bar.close_price < bar.open_price else (
-        nrecords, 0, abs(bar.volume), 0, abs(bar.volume))
-
-        if newBar and any(self.datas):
-            self.datas.resize(nrecords + 1, refcheck=0)
-            self.listBar.resize(nrecords + 1, refcheck=0)
-            self.listVol.resize(nrecords + 1, refcheck=0)
-            self.listSig.append(0)
-        elif any(self.datas):
-            self.listLow.pop()
-            self.listHigh.pop()
-            # self.listOpenInterest.pop()
-            self.listSig.pop()
-        if any(self.datas):
-            self.datas[-1] = (bar.datetime, bar.open_price, bar.close_price, bar.low_price, bar.high_price, bar.volume, openInterest)
-            self.listBar[-1] = (nrecords, bar.open_price, bar.close_price, bar.low_price, bar.high_price)
-            self.listVol[-1] = recordVol
-            self.listSig[-1] = 0
-        else:
-            self.datas = np.rec.array(
-                [(bar.datetime, bar.open_price, bar.close_price, bar.low_price, bar.high_price, bar.volume, openInterest)], \
-                names=('datetime', 'open', 'close', 'low', 'high', 'volume',))
-            self.listBar = np.rec.array([(nrecords, bar.open_price, bar.close_price, bar.low_price, bar.high_price)], \
-                                        names=('time_int', 'open', 'close', 'low', 'high'))
-            self.listVol = np.rec.array([recordVol], names=('time_int', 'open', 'close', 'low', 'high'))
-            self.listSig = [0]
-            self.resignData(self.datas)
-
-        self.axisTime.update_xdict({nrecords: bar.datetime})
-        self.listLow.append(bar.low_price)
-        self.listHigh.append(bar.high_price)
-        # self.listOpenInterest.append(openInterest)
-        self.listSig.append(0)
-        self.resignData(self.datas)
-        return newBar
 
     # ----------------------------------------------------------------------
     def loadData(self, datas: pd.DataFrame,  trades=None, sigs=None):

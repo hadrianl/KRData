@@ -321,6 +321,7 @@ class Crosshair(QtCore.QObject):
         self.yAxis = 0
 
         self.datas = None
+        self.trade_datas = None
 
         self.yAxises = [0 for i in range(3)]
         self.leftX = [0 for i in range(3)]
@@ -428,7 +429,9 @@ class Crosshair(QtCore.QObject):
             highPrice = data['high']
             volume = int(data['volume'])
             preClosePrice = lastdata['close']
-            tradePrice = abs(self.master.listSig[xAxis])
+            # tradePrice = abs(self.master.listSig[xAxis])
+            trades = self.master.listTrade[self.master.listTrade['time_int']==xAxis]
+
         except Exception as e:
             return
 
@@ -471,6 +474,8 @@ class Crosshair(QtCore.QObject):
         cHigh = 'red' if highPrice > preClosePrice else 'green'
         cLow = 'red' if lowPrice > preClosePrice else 'green'
 
+        tradeStr = ''.join(f'<span style="color: {"yellow" if t["direction"] == "short" else "blue"}; font-size: 16px;">'
+                           f'{"↓" if t["direction"] == "short" else "↑"}{t["size"]}@{t["price"]}</span><br>' for t in trades)
         self.__textInfo.setHtml(
             u'<div style="text-align: center; background-color:#000">\
                 <span style="color: white;  font-size: 16px;">日期</span><br>\
@@ -478,17 +483,16 @@ class Crosshair(QtCore.QObject):
                 <span style="color: white;  font-size: 16px;">时间</span><br>\
                 <span style="color: yellow; font-size: 16px;">%s</span><br>\
                 <span style="color: white;  font-size: 16px;">价格</span><br>\
-                <span style="color: %s;     font-size: 16px;">(开) %.3f</span><br>\
-                <span style="color: %s;     font-size: 16px;">(高) %.3f</span><br>\
-                <span style="color: %s;     font-size: 16px;">(低) %.3f</span><br>\
-                <span style="color: %s;     font-size: 16px;">(收) %.3f</span><br>\
-                <span style="color: white;  font-size: 16px;">成交量</span><br>\
-                <span style="color: yellow; font-size: 16px;">(量) %d</span><br>\
-                <span style="color: white;  font-size: 16px;">成交价</span><br>\
-                <span style="color: yellow; font-size: 16px;">(价) %.3f</span><br>\
+                <span style="color: %s;     font-size: 16px;">(开) %.1f</span><br>\
+                <span style="color: %s;     font-size: 16px;">(高) %.1f</span><br>\
+                <span style="color: %s;     font-size: 16px;">(低) %.1f</span><br>\
+                <span style="color: %s;     font-size: 16px;">(收) %.1f</span><br>\
+                <span style="color: white;  font-size: 16px;">(量) %d</span><br>\
+                <span style="color: yellow; font-size: 16px;">成交 </span><br>\
+                %s\
             </div>' \
             % (dateText, timeText, cOpen, openPrice, cHigh, highPrice, \
-               cLow, lowPrice, cClose, closePrice, volume, tradePrice))
+               cLow, lowPrice, cClose, closePrice, volume, tradeStr))
         self.__textDate.setHtml(
             '<div style="text-align: center">\
                 <span style="color: yellow; font-size: 18px;">%s</span>\
@@ -497,7 +501,7 @@ class Crosshair(QtCore.QObject):
 
         self.__textVolume.setHtml(
             '<div style="text-align: right">\
-                <span style="color: white; font-size: 18px;">VOL : %.3f</span>\
+                <span style="color: white; font-size: 18px;">VOL : %.1f</span>\
             </div>' \
             % (volume))
         # 坐标轴宽度
