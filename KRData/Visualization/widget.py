@@ -277,6 +277,8 @@ class KLineWidget(KeyWraper):
                      fills]
             else:
                 executions = []
+        
+        print(executions)
 
         if executions:
             datas = _concat_executions(datas, executions)
