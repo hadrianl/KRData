@@ -6,7 +6,6 @@
 THANKS FOR th github project https://github.com/moonnejs/uiKLine
 """
 
-from vnpy.event import EventEngine, Event
 import numpy as np
 import pandas as pd
 import datetime as dt
