@@ -231,6 +231,7 @@ class KLineWidget(KeyWraper):
         # self.query_data()
 
         # ----------------------------------------------------------------------
+
     def open_executions_file(self):
         fname = QFileDialog.getOpenFileName(self, '选择交易文件', './')
         if fname[0]:
@@ -437,6 +438,7 @@ class KLineWidget(KeyWraper):
                 # text = pg.TextItem(f'{t.size}@{t.price}', color='y', anchor=(t.time_int, t.price), rotateAxis=45)
                 self.pwKL.addItem(arrow)
                 self.tradeArrows.append(arrow)
+
     def plotMark(self):
         """显示开平仓信号"""
         # 检查是否有数据
@@ -526,10 +528,10 @@ class KLineWidget(KeyWraper):
     # ----------------------------------------------------------------------
     def onNxt(self):
         """跳转到下一个开平仓点"""
-        if len(self.listSig) > 0 and not self.index is None:
-            datalen = len(self.listSig)
+        datalen = len(self.listBar)
+        if datalen > 0 and not self.index is None:
             if self.index < datalen - 2: self.index += 1
-            while self.index < datalen - 2 and self.listSig[self.index] == 0:
+            while self.index < datalen - 2 and self.index not in self.listTrade['time_int']:
                 self.index += 1
             self.refresh()
             x = self.index
@@ -539,9 +541,10 @@ class KLineWidget(KeyWraper):
     # ----------------------------------------------------------------------
     def onPre(self):
         """跳转到上一个开平仓点"""
-        if len(self.listSig) > 0 and not self.index is None:
+        datalen = len(self.listBar)
+        if datalen > 0 and not self.index is None:
             if self.index > 0: self.index -= 1
-            while self.index > 0 and self.listSig[self.index] == 0:
+            while self.index > 0 and self.index not in self.listTrade['time_int']:
                 self.index -= 1
             self.refresh()
             x = self.index
@@ -741,6 +744,8 @@ class KLineWidget(KeyWraper):
             else:
                 if trades:
                     self.listTrade = pd.DataFrame(trades, columns=['time_int', 'direction', 'price', 'size']).to_records(False)
+                else:
+                    self.listTrade = []
         # 成交量颜色和涨跌同步，K线方向由涨跌决定
         datas0 = pd.DataFrame()
         datas0['open'] = datas.apply(lambda x: 0 if x['close'] >= x['open'] else x['volume'], axis=1)
