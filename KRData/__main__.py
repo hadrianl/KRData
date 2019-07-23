@@ -116,7 +116,33 @@ def visual(review_mode):
     kw.showMaximized()
     vapp.exec_()
 
+@click.command()
+@click.argument('pkl_file')
+def visualTrades(pkl_file):
+    from .Visualization import create_qapp, TradesMonitor
+    import pickle
+    vapp = create_qapp()
+    with open(pkl_file, 'rb') as f:
+        trades_list = pickle.load(f)
+    tm = TradesMonitor(trades_list)
+    tm.show()
+    vapp.exec_()
+
+@click.command()
+@click.argument('pkl_file')
+def visualExecutions(pkl_file):
+    from .Visualization import create_qapp, ExecutionsMonitor
+    import pickle
+    vapp = create_qapp()
+    with open(pkl_file, 'rb') as f:
+        executions_list = pickle.load(f)
+    em = ExecutionsMonitor(executions_list)
+    em.show()
+    vapp.exec_()
+
 cli.add_command(save_ib_trade)
 cli.add_command(save_ctp_ticker)
 cli.add_command(save_ib_ticker)
 cli.add_command(visual)
+cli.add_command(visualTrades)
+cli.add_command(visualExecutions)

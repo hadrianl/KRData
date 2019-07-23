@@ -61,10 +61,11 @@ class KLineWidget(KeyWraper):
             self._querier = IBMarket()
 
         self.review_mode = review_mode
+
         if review_mode == 'backtest':
-            self.executions = kwargs.get('executions', [])
+            self.setExecutions(kwargs.get('executions', []))
         else:
-            self.executions = []
+            self.setExecutions([])
 
 
         self.raw_data = None
@@ -238,10 +239,10 @@ class KLineWidget(KeyWraper):
             try:
                 import pickle
                 with open(fname[0], 'rb') as f:
-                    self.executions = pickle.load(f)
+                    executions_list = pickle.load(f)
             finally:
                 if isinstance(self.executions, Iterable):
-                    self.executions.sort(key=lambda t: t['datetime'])
+                    self.setExecutions(executions_list)
                     start = self.executions[0]['datetime'] if isinstance(self.executions[0]['datetime'], dt.datetime) else parser.parse(self.executions[0]['datetime'])
                     end = self.executions[-1]['datetime'] if isinstance(self.executions[-1]['datetime'],
                                                                          dt.datetime) else parser.parse(
@@ -293,6 +294,11 @@ class KLineWidget(KeyWraper):
 
         self.loadData(datas)
         self.refreshAll()
+
+    def setExecutions(self, executions:list):
+        self.executions = executions
+        if self.executions:
+            self.executions.sort(key=lambda t: t['datetime'])
 
     def change_querier_period(self, period):
         self.period = period
@@ -712,7 +718,6 @@ class KLineWidget(KeyWraper):
         """
         # 设置中心点时间
         # 绑定数据，更新横坐标映射，更新Y轴自适应函数，更新十字光标映射
-
         for p in DEFAULT_MA:
             datas[f'ma{p}'] = talib.MA(datas['close'].values, p)
 
@@ -769,3 +774,168 @@ class KLineWidget(KeyWraper):
             self.updateAll()
         self.crosshair.signal.emit((None, None))
 
+
+
+class ExecutionsMonitor(QWidget):
+    """
+    For viewing trade result.
+    """
+
+    def __init__(
+            self, executions: list, parent=None):
+        """"""
+        super().__init__(parent)
+        self.executions = executions
+        self._selected_executions = []
+        self.init_ui()
+
+    def init_ui(self):
+        """"""
+        self.setWindowTitle(f"执行明细")
+        self.resize(1100, 500)
+
+        table = QTableWidget()
+        fields = [k for k in self.executions[0]]
+        # fields = ['datetime', 'price', 'size', 'direction']
+        table.setColumnCount(len(fields) + 1)
+        table.setRowCount(len(self.executions))
+        table.setHorizontalHeaderLabels(['ID'] + fields)
+        table.verticalHeader().setVisible(False)
+
+        for r, tradeData in enumerate(self.executions):
+            check = QTableWidgetItem()
+            check.setData(Qt.DisplayRole, r)
+            check.setCheckState(QtCore.Qt.Unchecked)
+            table.setItem(r, 0, check)
+            for c, k in enumerate(fields):
+                v = tradeData.get(k)
+                cell = QTableWidgetItem()
+                cell.setFlags(QtCore.Qt.ItemIsEnabled)
+                cell.setData(Qt.DisplayRole, v)
+
+                cell.setTextAlignment(QtCore.Qt.AlignCenter)
+                table.setItem(r, c + 1, cell)
+
+        table.cellChanged.connect(self.visulize)
+        table.setSortingEnabled(True)
+
+        vbox = QVBoxLayout()
+        vbox.addWidget(table)
+
+        self.table = table
+        self.setLayout(vbox)
+        self.klineWidget = KLineWidget(data_source='HK', review_mode='backtest')
+        self.klineWidget.executions_file_btn.setEnabled(False)
+
+    def visulize(self, row, column):
+        if column == 0:
+            r = int(self.table.item(row, 0).text())
+            if self.table.item(row, column).checkState():
+                self._selected_executions.append(self.executions[r])
+            else:
+                self._selected_executions.remove(self.executions[r])
+
+            if self._selected_executions:
+                self.klineWidget.setExecutions(self._selected_executions)
+                start = self._selected_executions[0]['datetime']
+                end = self._selected_executions[-1]['datetime']
+                start = start if isinstance(start, dt.datetime) else parser.parse(start)
+                end = start if isinstance(end, dt.datetime) else parser.parse(end)
+
+                if not self.klineWidget.symbol_line.text():
+                    self.klineWidget.symbol_line.setText(f'HSI{start.strftime("%y%m")}')
+
+                self.klineWidget.datetime_from.setDateTime(start - dt.timedelta(minutes=120))
+                self.klineWidget.datetime_to.setDateTime(end + dt.timedelta(minutes=120))
+                self.klineWidget.query_data()
+                self.klineWidget.show()
+                self.klineWidget.setFocus()
+
+
+class TradesMonitor(QWidget):
+    """
+    For viewing trade result.
+    """
+
+    def __init__(
+            self, trades: list, parent=None):
+        """"""
+        super().__init__(parent)
+        self.trades = trades
+        self._selected_executions = []
+        self.init_ui()
+
+    def init_ui(self):
+        """"""
+        self.setWindowTitle(f"交易明细")
+        self.resize(1100, 500)
+
+        table = QTableWidget()
+        fields = []
+        for k1 in self.trades[0]:
+            for k2 in self.trades[0][k1]:
+                fields.append(f'{k2}_{k1}')
+
+        # fields = ['datetime_open', 'price_open', 'size_open', 'direction_open', 'datetime_close', 'price_close', 'size_close', 'direction_close']
+        table.setColumnCount(len(fields) + 2)
+        table.setRowCount(len(self.trades))
+        table.setHorizontalHeaderLabels(['ID'] + fields + ['pnl'])
+        table.verticalHeader().setVisible(False)
+
+        for r, tradeData in enumerate(self.trades):
+            check = QTableWidgetItem()
+            check.setData(Qt.DisplayRole, r)
+            check.setCheckState(QtCore.Qt.Unchecked)
+            table.setItem(r, 0, check)
+            for c, k in enumerate(fields):
+                f, oc = k.split('_')
+                v = tradeData.get(oc, {}).get(f)
+                cell = QTableWidgetItem()
+                cell.setFlags(QtCore.Qt.ItemIsEnabled)
+                cell.setData(Qt.DisplayRole, v)
+
+                cell.setTextAlignment(QtCore.Qt.AlignCenter)
+                table.setItem(r, c + 1, cell)
+
+            _open = tradeData['open']
+            open_value = _open['price'] * _open['size'] * (-1 if _open['direction'] == 'long' else 1)
+            _close = tradeData['close']
+            close_value = _close['price'] * _close['size'] * (-1 if _close['direction'] == 'long' else 1)
+            pnl = QTableWidgetItem()
+            pnl.setData(Qt.DisplayRole, open_value + close_value)
+            table.setItem(r, c + 2, pnl)
+
+        # table.doubleClicked.connect(self.visulize)
+        table.cellChanged.connect(self.visulize)
+        table.setSortingEnabled(True)
+
+        vbox = QVBoxLayout()
+        vbox.addWidget(table)
+
+        self.table = table
+        self.setLayout(vbox)
+        self.klineWidget = KLineWidget(data_source='HK', review_mode='backtest')
+        self.klineWidget.executions_file_btn.setEnabled(False)
+
+    def visulize(self, row, column):
+        if column == 0:
+            r = int(self.table.item(row, 0).text())
+            if self.table.item(row, column).checkState():
+                self._selected_executions.append(self.trades[r]['open'])
+                self._selected_executions.append(self.trades[r]['close'])
+            else:
+                self._selected_executions.remove(self.trades[r]['open'])
+                self._selected_executions.remove(self.trades[r]['close'])
+
+            self.klineWidget.setExecutions(self._selected_executions)
+            if self._selected_executions:
+                start = self._selected_executions[0]['datetime']
+                end = self._selected_executions[-1]['datetime']
+                start = start if isinstance(start, dt.datetime) else parser.parse(start)
+                end = start if isinstance(end, dt.datetime) else parser.parse(end)
+                if not self.klineWidget.symbol_line.text():
+                    self.klineWidget.symbol_line.setText(f'HSI{start.strftime("%y%m")}')
+                self.klineWidget.datetime_from.setDateTime(start - dt.timedelta(minutes=120))
+                self.klineWidget.datetime_to.setDateTime(end + dt.timedelta(minutes=120))
+                self.klineWidget.query_data()
+                self.klineWidget.show()

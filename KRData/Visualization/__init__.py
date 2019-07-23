@@ -9,7 +9,7 @@ from PyQt5 import QtGui, QtWidgets, QtCore
 import os
 import platform
 import ctypes
-from .widget import KLineWidget
+from .widget import KLineWidget, TradesMonitor, ExecutionsMonitor
 
 def create_qapp(app_name: str = "KaiRui Visualization"):
     """
