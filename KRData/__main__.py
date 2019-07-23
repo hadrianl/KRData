@@ -117,26 +117,20 @@ def visual(review_mode):
     vapp.exec_()
 
 @click.command()
-@click.argument('pkl_file')
-def visualTrades(pkl_file):
+# @click.argument('pkl_file')
+def visualTrades():
     from .Visualization import create_qapp, TradesMonitor
-    import pickle
     vapp = create_qapp()
-    with open(pkl_file, 'rb') as f:
-        trades_list = pickle.load(f)
-    tm = TradesMonitor(trades_list)
+    tm = TradesMonitor([])
     tm.show()
     vapp.exec_()
 
 @click.command()
-@click.argument('pkl_file')
-def visualExecutions(pkl_file):
+# @click.argument('pkl_file')
+def visualExecutions():
     from .Visualization import create_qapp, ExecutionsMonitor
-    import pickle
     vapp = create_qapp()
-    with open(pkl_file, 'rb') as f:
-        executions_list = pickle.load(f)
-    em = ExecutionsMonitor(executions_list)
+    em = ExecutionsMonitor([])
     em.show()
     vapp.exec_()
 

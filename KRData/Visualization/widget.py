@@ -795,8 +795,25 @@ class ExecutionsMonitor(QWidget):
         self.resize(1100, 500)
 
         table = QTableWidget()
+        self.table = table
+
+        self.read_file_btn = QPushButton('读取成交记录')
+        self.read_file_btn.clicked.connect(self.read_trades)
+
+        vbox = QVBoxLayout()
+        vbox.addWidget(self.read_file_btn)
+        vbox.addWidget(table)
+
+        self.setLayout(vbox)
+        self.klineWidget = KLineWidget(data_source='HK', review_mode='backtest')
+        self.klineWidget.executions_file_btn.setEnabled(False)
+
+
+    def refresh_table(self):
+        table = self.table
+        table.clear()
+        # table.cellChanged.connect(self.visulize)
         fields = [k for k in self.executions[0]]
-        # fields = ['datetime', 'price', 'size', 'direction']
         table.setColumnCount(len(fields) + 1)
         table.setRowCount(len(self.executions))
         table.setHorizontalHeaderLabels(['ID'] + fields)
@@ -819,13 +836,14 @@ class ExecutionsMonitor(QWidget):
         table.cellChanged.connect(self.visulize)
         table.setSortingEnabled(True)
 
-        vbox = QVBoxLayout()
-        vbox.addWidget(table)
+    def read_trades(self):
+        fname = QFileDialog.getOpenFileName(self, '选择交易执行文件', './')
+        if fname[0]:
+            import pickle
+            with open(fname[0], 'rb') as f:
+                self.executions = pickle.load(f)
 
-        self.table = table
-        self.setLayout(vbox)
-        self.klineWidget = KLineWidget(data_source='HK', review_mode='backtest')
-        self.klineWidget.executions_file_btn.setEnabled(False)
+            self.refresh_table()
 
     def visulize(self, row, column):
         if column == 0:
@@ -871,7 +889,28 @@ class TradesMonitor(QWidget):
         self.resize(1100, 500)
 
         table = QTableWidget()
+        self.table = table
+        self.refresh_table()
+
+        self.read_file_btn = QPushButton('读取成交记录')
+        self.read_file_btn.clicked.connect(self.read_trades)
+
+        vbox = QVBoxLayout()
+        vbox.addWidget(self.read_file_btn)
+        vbox.addWidget(table)
+
+        self.setLayout(vbox)
+        self.klineWidget = KLineWidget(data_source='HK', review_mode='backtest')
+        self.klineWidget.executions_file_btn.setEnabled(False)
+
+    def refresh_table(self):
+        table = self.table
+        table.clear()
+        # table.cellChanged.disconnect(self.visulize)
         fields = []
+        if not self.trades:
+            return
+
         for k1 in self.trades[0]:
             for k2 in self.trades[0][k1]:
                 fields.append(f'{k2}_{k1}')
@@ -905,17 +944,17 @@ class TradesMonitor(QWidget):
             pnl.setData(Qt.DisplayRole, open_value + close_value)
             table.setItem(r, c + 2, pnl)
 
-        # table.doubleClicked.connect(self.visulize)
         table.cellChanged.connect(self.visulize)
         table.setSortingEnabled(True)
 
-        vbox = QVBoxLayout()
-        vbox.addWidget(table)
+    def read_trades(self):
+        fname = QFileDialog.getOpenFileName(self, '选择交易文件', './')
+        if fname[0]:
+            import pickle
+            with open(fname[0], 'rb') as f:
+                self.trades = pickle.load(f)
 
-        self.table = table
-        self.setLayout(vbox)
-        self.klineWidget = KLineWidget(data_source='HK', review_mode='backtest')
-        self.klineWidget.executions_file_btn.setEnabled(False)
+            self.refresh_table()
 
     def visulize(self, row, column):
         if column == 0:
