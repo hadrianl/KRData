@@ -454,6 +454,7 @@ def _concat_executions(market_data: pd.DataFrame, executions: Union[List, pd.Dat
 
     executions_df.index = pd.to_datetime(executions_df.index)
     executions_df = executions_df.sort_index()
+    market_data = market_data.sort_index()
     executions_df.index = market_data.asof(executions_df.index)['datetime']
     executions_df_grouped = executions_df.groupby('datetime').apply(lambda df: df.to_dict('records'))
     executions_df_grouped.name = 'trades'
