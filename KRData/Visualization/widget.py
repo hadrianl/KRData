@@ -160,6 +160,7 @@ class KLineWidget(KeyWraper):
         data_params_layout.addWidget(self.symbol_line)
         data_params_layout.addWidget(self.interval_combo)
         data_params_layout.addStretch()
+        self.data_params_layout = data_params_layout
 
 
         self.datetime_from = QDateTimeEdit()
@@ -902,11 +903,19 @@ class TradesMonitor(QWidget):
         self.setLayout(vbox)
         self.klineWidget = KLineWidget(data_source='HK', review_mode='backtest')
         self.klineWidget.executions_file_btn.setEnabled(False)
+        self.left_btn = QToolButton()
+        self.right_btn = QToolButton()
+        self.left_btn.setArrowType(Qt.LeftArrow)
+        self.right_btn.setArrowType(Qt.RightArrow)
+        self._row = 0
+        self.klineWidget.data_params_layout.addWidget(self.left_btn)
+        self.klineWidget.data_params_layout.addWidget(self.right_btn)
+        self.left_btn.clicked.connect(self.pre_visual)
+        self.right_btn.clicked.connect(self.nxt_visual)
 
     def refresh_table(self):
         table = self.table
         table.clear()
-        # table.cellChanged.disconnect(self.visulize)
         fields = []
         if not self.trades:
             return
@@ -958,36 +967,8 @@ class TradesMonitor(QWidget):
             self.refresh_table()
 
     def visulize(self, row, column):
-        # if column == 0:
-        #     r = int(self.table.item(row, 0).text())
-        #     if self.table.item(row, column).checkState():
-        #         self._selected_executions.append(self.trades[r]['open'])
-        #         self._selected_executions.append(self.trades[r]['close'])
-        #     else:
-        #         self._selected_executions.remove(self.trades[r]['open'])
-        #         self._selected_executions.remove(self.trades[r]['close'])
-        #
-        #     self.klineWidget.setExecutions(self._selected_executions)
-        #     if self._selected_executions:
-        #         start = self._selected_executions[0]['datetime']
-        #         end = self._selected_executions[-1]['datetime']
-        #         start = start if isinstance(start, dt.datetime) else parser.parse(start)
-        #         end = start if isinstance(end, dt.datetime) else parser.parse(end)
-        #         if not self.klineWidget.symbol_line.text():
-        #             self.klineWidget.symbol_line.setText(f'HSI{start.strftime("%y%m")}')
-        #         self.klineWidget.datetime_from.setDateTime(start - dt.timedelta(minutes=120))
-        #         self.klineWidget.datetime_to.setDateTime(end + dt.timedelta(minutes=120))
-        #         self.klineWidget.query_data()
-        #         self.klineWidget.show()
-
+        self._row = row
         r = int(self.table.item(row, 0).text())
-        # if self.table.item(row, column).checkState():
-        #     self._selected_executions.append(self.trades[r]['open'])
-        #     self._selected_executions.append(self.trades[r]['close'])
-        # else:
-        #     self._selected_executions.remove(self.trades[r]['open'])
-        #     self._selected_executions.remove(self.trades[r]['close'])
-
         self._selected_executions = []
         self._selected_executions.append(self.trades[r]['open'])
         self._selected_executions.append(self.trades[r]['close'])
@@ -997,14 +978,23 @@ class TradesMonitor(QWidget):
             end = self._selected_executions[-1]['datetime']
             start = start if isinstance(start, dt.datetime) else parser.parse(start)
             end = start if isinstance(end, dt.datetime) else parser.parse(end)
-            if not self.klineWidget.symbol_line.text():
-                symbol = self.trades[r].get('extra', {}).get('symbol', None)
-                if symbol:
-                    self.klineWidget.symbol_line.setText(symbol)
-                else:
-                    self.klineWidget.symbol_line.setText(f'HSI{start.strftime("%y%m")}')
+
+            symbol = self.trades[r].get('extra', {}).get('symbol', None)
+            if symbol:
+                self.klineWidget.symbol_line.setText(symbol)
+            else:
+                self.klineWidget.symbol_line.setText(f'HSI{start.strftime("%y%m")}')
 
             self.klineWidget.datetime_from.setDateTime(start.replace(hour=0, minute=0, second=0) - dt.timedelta(minutes=120))
             self.klineWidget.datetime_to.setDateTime(end.replace(hour=23, minute=59, second=59) + dt.timedelta(minutes=120))
             self.klineWidget.query_data()
             self.klineWidget.show()
+
+
+    def pre_visual(self):
+        r = max(0, self._row - 1)
+        self.visulize(r, 0)
+
+    def nxt_visual(self):
+        r = min(self.table.rowCount(), self._row + 1)
+        self.visulize(r, 0)
