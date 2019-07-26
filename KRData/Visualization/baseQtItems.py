@@ -338,12 +338,14 @@ class Crosshair(QtCore.QObject):
         self.__textSig = pg.TextItem('lastSigInfo', anchor=(1, 0))
         self.__textSubSig = pg.TextItem('lastSubSigInfo', anchor=(1, 0))
         self.__textVolume = pg.TextItem('lastBarVolume', anchor=(1, 0))
+        self.__textMAs = pg.TextItem('lastBarMA', anchor=(1, 0))
 
         self.__textDate.setZValue(2)
         self.__textInfo.setZValue(2)
         self.__textSig.setZValue(2)
         self.__textSubSig.setZValue(2)
         self.__textVolume.setZValue(2)
+        self.__textMAs.setZValue(2)
         self.__textInfo.border = pg.mkPen(color=(230, 255, 0, 255), width=1.2)
 
         for i in range(3):
@@ -358,6 +360,7 @@ class Crosshair(QtCore.QObject):
 
         self.views[0].addItem(self.__textInfo, ignoreBounds=True)
         self.views[0].addItem(self.__textSig, ignoreBounds=True)
+        self.views[0].addItem(self.__textMAs, ignoreBounds=True)
         self.views[1].addItem(self.__textVolume, ignoreBounds=True)
         self.views[2].addItem(self.__textDate, ignoreBounds=True)
         self.views[2].addItem(self.__textSubSig, ignoreBounds=True)
@@ -431,6 +434,7 @@ class Crosshair(QtCore.QObject):
             preClosePrice = lastdata['close']
             # tradePrice = abs(self.master.listSig[xAxis])
             trades = self.master.listTrade[self.master.listTrade['time_int']==xAxis]
+            mas = self.master.listMA[xAxis]
 
         except Exception as e:
             return
@@ -504,6 +508,15 @@ class Crosshair(QtCore.QObject):
                 <span style="color: white; font-size: 18px;">VOL : %.1f</span>\
             </div>' \
             % (volume))
+
+        maInfo = ''.join(f'<span style="color: {c}; font-size: 18px;">MA{p} : {v:.2f} </span>' for p, c, v in zip([5, 10, 30, 60], ['red', 'blue', 'green', 'DeepPink'], mas))
+        self.__textMAs.setHtml(
+            '<div style="text-align: right">\
+                          %s\
+                      </div>' \
+            % (maInfo)
+        )
+
         # 坐标轴宽度
         rightAxisWidth = self.views[0].getAxis('right').width()
         bottomAxisHeight = self.views[2].getAxis('bottom').height()
@@ -533,6 +546,7 @@ class Crosshair(QtCore.QObject):
         self.__textSig.setPos(br[0].x(), tl[0].y())
         self.__textSubSig.setPos(br[2].x(), tl[2].y())
         self.__textVolume.setPos(br[1].x(), tl[1].y())
+        self.__textMAs.setPos(br[0].x(), tl[0].y())
 
         # 修改对称方式防止遮挡
         self.__textDate.anchor = Point((1, 1)) if xAxis > self.master.index else Point((0, 1))

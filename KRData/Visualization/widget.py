@@ -19,14 +19,19 @@ from collections import deque
 from .baseQtItems import KeyWraper, CandlestickItem, MyStringAxis, Crosshair, CustomViewBox
 from ..HKData import HKMarket
 from ..IBData import IBMarket, IBTrade
-from ..util import _concat_executions
+from ..util import _concat_executions, load_json_settings
 from typing import Iterable
 import talib
 from dateutil import parser
 
 EVENT_BAR_UPDATE = 'eBarUpdate'
-DEFAULT_MA = [5, 10, 30, 60]
-DEFAULT_MA_COLOR = ['r', 'b', 'g', 'y']
+DEFAULT_MA_SETTINGS = {'5': 'r', '10': 'b', '30': 'g', '60': 'm'}
+DEFAULT_MACD_SETTINGS = {'fastperiod': 12, 'slowperiod': 26, 'signalperiod': 9}
+DEFAULT_TRADE_MARK_SETTINGS = {'long': {'angle': 90, 'brush': 'b', 'headLen': 15}, 'short': {'angle': -90, 'brush': 'y', 'headLen': 15}}
+SETTINGS = load_json_settings('visual_settings.json')
+MA_SETTINGS = SETTINGS.get('MA', DEFAULT_MA_SETTINGS)
+TRADE_MARK_SETTINGS = SETTINGS.get('TradeMark', DEFAULT_TRADE_MARK_SETTINGS)
+MACD_SETTINGS = SETTINGS.get('MACD', DEFAULT_MACD_SETTINGS)
 MAX_LEN = 3000
 
 class KLineWidget(KeyWraper):
@@ -85,6 +90,7 @@ class KLineWidget(KeyWraper):
         self.listSig = []
         self.listMA = []
         self.listMACD = []
+        self.listINCMUL = []
         self.listTrade = []
         self.dictOrder = {}
         self.arrows = []
@@ -138,6 +144,10 @@ class KLineWidget(KeyWraper):
         # 设置横坐标
         xdict = {}
         self.axisTime = MyStringAxis(xdict, orientation='bottom')
+
+        self.indComboBox = QComboBox()
+        self.indComboBox.addItems(['MACD', 'INCMUL'])
+
         # 初始化子图
         self.initplotKline()
         self.initplotVol()
@@ -159,6 +169,7 @@ class KLineWidget(KeyWraper):
         data_params_layout = QHBoxLayout()
         data_params_layout.addWidget(self.symbol_line)
         data_params_layout.addWidget(self.interval_combo)
+        data_params_layout.addWidget(self.indComboBox)
         data_params_layout.addStretch()
         self.data_params_layout = data_params_layout
 
@@ -177,6 +188,7 @@ class KLineWidget(KeyWraper):
         timerange_layout.addWidget(self.datetime_to)
         timerange_layout.addStretch()
         self.account_line = QLineEdit('')
+
 
         def sourceState(btn):
             if btn.text() == 'HK':
@@ -265,10 +277,13 @@ class KLineWidget(KeyWraper):
         symbol = self.symbol_line.text()
 
         if self.data_source == 'HK':
-            query_set = self._querier[start:end:symbol]
-            if query_set.count() == 0:
-                return
-            datas = self._querier.to_df(query_set)
+            query_set1 = self._querier[120:start:symbol]
+            query_set2 = self._querier[start:end:symbol]
+            query_set3 = self._querier[end:120:symbol]
+            data1 = self._querier.to_df(query_set1)
+            data2 = self._querier.to_df(query_set2)
+            data3 = self._querier.to_df(query_set3)
+            datas = pd.concat([data1, data2, data3])
 
         elif self.data_source == 'IB':
             contract = self._querier.verifyContract(symbol)
@@ -343,7 +358,7 @@ class KLineWidget(KeyWraper):
         self.candle = CandlestickItem(self.listBar)
         self.pwKL.addItem(self.candle)
         self.pwKL.addItem(self.candle.tickLine)
-        self.curveMAs = [self.pwKL.plot(pen=c, name=f'ma{p}') for p, c in zip(DEFAULT_MA, DEFAULT_MA_COLOR)]
+        self.curveMAs = [self.pwKL.plot(pen=c, name=f'ma{p}') for p, c in MA_SETTINGS.items()]
         self.pwKL.setMinimumHeight(350)
         self.pwKL.setXLink('_'.join([self.windowId, 'PlotInd']))
         self.pwKL.hideAxis('bottom')
@@ -355,10 +370,39 @@ class KLineWidget(KeyWraper):
     def initplotInd(self):
         """初始化持仓量子图"""
         self.pwInd = self.makePI('_'.join([self.windowId, 'PlotInd']))
-        self.curveDif = self.pwInd.plot(pen='w', name='dif')
-        self.curveDea = self.pwInd.plot(pen='y', name='dea')
-        self.barMacd = pg.BarGraphItem(x=[0], height=[0], width=0.5, name='macd')
-        self.pwInd.addItem(self.barMacd)
+        self.curveDif = pg.PlotDataItem(pen='b', name='dif', parent=self.pwInd)
+        self.curveDea = pg.PlotDataItem(pen='m', name='dea', parent=self.pwInd)
+        self.barMacd = pg.BarGraphItem(x=[0], height=[0], width=0.5, name='macd', parent=self.pwInd)
+        self.macdItems = [self.curveDif, self.curveDea, self.barMacd]
+
+        self.curveIncMulP = pg.PlotDataItem(pen='r', name='positiveMul', parent=self.pwInd)
+        self.curveIncMulN = pg.PlotDataItem(pen='g', name='negativeMul', parent=self.pwInd)
+        self.barInc = pg.BarGraphItem(x=[0], height=[0], width=0.5, name='inc', parent=self.pwInd)
+        self.incItems = [self.curveIncMulP, self.curveIncMulN, self.barInc]
+        # print(self.pwInd.items)
+
+        def changeInc(inc):
+            if inc == 'MACD':
+                for item in self.incItems:
+                    self.pwInd.removeItem(item)
+
+                print('MACD')
+                self.pwInd.addItem(self.curveDif)
+                self.pwInd.addItem(self.curveDea)
+                self.pwInd.addItem(self.barMacd)
+            elif inc == 'INCMUL':
+                for item in self.macdItems:
+                    self.pwInd.removeItem(item)
+                print('INCMUL')
+                self.pwInd.addItem(self.curveIncMulP)
+                self.pwInd.addItem(self.curveIncMulN)
+                self.pwInd.addItem(self.barInc)
+
+
+        self.indComboBox.currentTextChanged.connect(changeInc)
+
+        changeInc(self.indComboBox.currentText())
+
         self.lay_KL.nextRow()
         self.lay_KL.addItem(self.pwInd)
 
@@ -388,6 +432,17 @@ class KLineWidget(KeyWraper):
             self.curveDea.setData(self.listMACD['dea'][xmin:xmax])
             self.barMacd.setOpts(x=self.listMACD['time_int'][xmin:xmax], height=self.listMACD['macd'][xmin:xmax],
                                 brushes=np.where(self.listMACD['macd'][xmin:xmax]>0, 'r', 'g'))
+
+            self.curveIncMulP.setData(self.listINCMUL['inc_std'][xmin:xmax])
+            self.curveIncMulN.setData(-self.listINCMUL['inc_std'][xmin:xmax])
+            std_inc_pens = pd.cut(self.listINCMUL['inc_multiple'], [-np.inf, -2, -1, 1, 2, np.inf],
+                                  labels=('g', 'y', 'l', 'b', 'r'))
+            inc_gt_std = (abs(self.listINCMUL['inc'])/ self.listINCMUL['inc_std']) > 1
+            std_inc_brushes = np.where(inc_gt_std, std_inc_pens, None)
+
+            self.barInc.setOpts(x=self.listINCMUL['time_int'][xmin:xmax], height=self.listINCMUL['inc'][xmin:xmax],
+                                pens=std_inc_pens, brushes=std_inc_brushes)
+
             # self.curveOI.setData(np.append(self.listOpenInterest[xmin:xmax], 0), pen='w', name="OpenInterest")
 
     # ----------------------------------------------------------------------
@@ -434,14 +489,18 @@ class KLineWidget(KeyWraper):
         for arrow in self.tradeArrows:
             self.pwKL.removeItem(arrow)
 
-        for t in self.listTrade:
+        for i, t in enumerate(self.listTrade):
             if t.direction == 'long':
-                arrow = pg.ArrowItem(pos=(t.time_int, t.price), angle=90, brush='b', headLen=15 * t.size)
+                arrow = pg.ArrowItem(pos=(t.time_int, t.price), angle=TRADE_MARK_SETTINGS['long']['angle'],
+                                     brush=TRADE_MARK_SETTINGS['long']['brush'],
+                                     headLen=TRADE_MARK_SETTINGS['long']['headLen'] * t.size)
                 # text = pg.TextItem(f'{t.size}@{t.price}', color='b', anchor=(t.time_int, t.price), rotateAxis=-45)
                 self.pwKL.addItem(arrow)
                 self.tradeArrows.append(arrow)
             elif t.direction == 'short':
-                arrow = pg.ArrowItem(pos=(t.time_int, t.price), angle=-90, brush='y',  headLen=15 * t.size)
+                arrow = pg.ArrowItem(pos=(t.time_int, t.price), angle=TRADE_MARK_SETTINGS['short']['angle'],
+                                     brush=TRADE_MARK_SETTINGS['short']['brush'],
+                                     headLen=TRADE_MARK_SETTINGS['short']['headLen'] * t.size)
                 # text = pg.TextItem(f'{t.size}@{t.price}', color='y', anchor=(t.time_int, t.price), rotateAxis=45)
                 self.pwKL.addItem(arrow)
                 self.tradeArrows.append(arrow)
@@ -645,14 +704,20 @@ class KLineWidget(KeyWraper):
             else:
                 vb.setRange(yRange=(0, 1))
 
-        def viewXRangeChanged_Ind(low, high, vb):
+        def viewXRangeChanged_Ind(vb):
             vRange = vb.viewRange()
             xmin = max(0, int(vRange[0][0]))
             xmax = max(0, int(vRange[0][1]))
             xmax = min(xmax, len(datas))
             if len(datas) > 0 and xmax > xmin:
-                ymin = min(self.listMACD[xmin:xmax][low])
-                ymax = max(self.listMACD[xmin:xmax][high])
+                inc = self.indComboBox.currentText()
+                if inc == 'MACD':
+                    ymin = min(self.listMACD[xmin:xmax]['dif'])
+                    ymax = max(self.listMACD[xmin:xmax]['dif'])
+                elif inc == 'INCMUL':
+                    ymin = min(self.listINCMUL[xmin:xmax]['inc'])
+                    ymax = max(self.listINCMUL[xmin:xmax]['inc'])
+
                 ymin, ymax = (-1, 1) if ymin == ymax else (ymin, ymax)
                 if not any(np.isnan([ymin, ymax])):
                     vb.setRange(yRange=(ymin, ymax))
@@ -666,7 +731,7 @@ class KLineWidget(KeyWraper):
         view.sigXRangeChanged.connect(partial(viewXRangeChanged, 'volume', 'volume'))
 
         view = self.pwInd.getViewBox()
-        view.sigXRangeChanged.connect(partial(viewXRangeChanged_Ind, 'dif', 'dif'))
+        view.sigXRangeChanged.connect(partial(viewXRangeChanged_Ind))
 
     # ----------------------------------------------------------------------
     # 数据相关
@@ -681,6 +746,7 @@ class KLineWidget(KeyWraper):
         self.listHigh = []
         self.listMA = []
         self.listMACD = []
+        self.listINCMUL = []
         self.listSig = []
         self.sigData = {}
         self.datas = []
@@ -719,12 +785,16 @@ class KLineWidget(KeyWraper):
         """
         # 设置中心点时间
         # 绑定数据，更新横坐标映射，更新Y轴自适应函数，更新十字光标映射
-        for p in DEFAULT_MA:
-            datas[f'ma{p}'] = talib.MA(datas['close'].values, p)
+        for p in DEFAULT_MA_SETTINGS.keys():
+            datas[f'ma{p}'] = talib.MA(datas['close'].values, int(p))
 
-        datas['dif'], datas['dea'], datas['macd'] = talib.MACDEXT(datas['close'].values, fastperiod=12, fastmatype=1,
-                                                slowperiod=26, slowmatype=1, signalperiod=9, signalmatype=1)
+        datas['dif'], datas['dea'], datas['macd'] = talib.MACDEXT(datas['close'].values, fastperiod=MACD_SETTINGS['fastperiod'], fastmatype=1,
+                                                slowperiod=MACD_SETTINGS['slowperiod'], slowmatype=1, signalperiod=MACD_SETTINGS['signalperiod'], signalmatype=1)
         datas['macd'] = datas['macd'] * 2
+
+        datas['inc'] = datas['close'] - datas['open']
+        datas['inc_std'] = talib.STDDEV(datas['inc'].values, timeperiod=60)
+        datas['inc_multiple'] = (datas['inc'] / datas['inc_std']).fillna(0)
 
         datas['time_int'] = np.array(range(len(datas)))
         # trades = trades.merge(datas['time_int'], how='left', left_index=True, right_index=True)
@@ -737,8 +807,9 @@ class KLineWidget(KeyWraper):
         self.listBar = datas[['time_int', 'open', 'close', 'low', 'high']].to_records(False)
         self.listHigh = list(datas['high'])
         self.listLow = list(datas['low'])
-        self.listMA = datas[[f'ma{p}' for p in DEFAULT_MA]].to_records(False)
+        self.listMA = datas[[f'ma{p}' for p in DEFAULT_MA_SETTINGS.keys()]].to_records(False)
         self.listMACD = datas[['time_int', 'dif', 'dea', 'macd']].to_records(False)
+        self.listINCMUL = datas[['time_int', 'inc', 'inc_std', 'inc_multiple']].to_records(False)
         # self.listOpenInterest = list(datas['openInterest'])
         self.listSig = [0] * (len(self.datas) - 1) if sigs is None else sigs
         if 'trades' in datas.columns:
@@ -903,6 +974,7 @@ class TradesMonitor(QWidget):
         self.setLayout(vbox)
         self.klineWidget = KLineWidget(data_source='HK', review_mode='backtest')
         self.klineWidget.executions_file_btn.setEnabled(False)
+        self.klineWidget.pwKL.removeItem(self.klineWidget.candle.tickLine)
         self.left_btn = QToolButton()
         self.right_btn = QToolButton()
         self.left_btn.setArrowType(Qt.LeftArrow)
@@ -985,8 +1057,8 @@ class TradesMonitor(QWidget):
             else:
                 self.klineWidget.symbol_line.setText(f'HSI{start.strftime("%y%m")}')
 
-            self.klineWidget.datetime_from.setDateTime(start.replace(hour=0, minute=0, second=0) - dt.timedelta(minutes=120))
-            self.klineWidget.datetime_to.setDateTime(end.replace(hour=23, minute=59, second=59) + dt.timedelta(minutes=120))
+            self.klineWidget.datetime_from.setDateTime(start.replace(hour=0, minute=0, second=0))
+            self.klineWidget.datetime_to.setDateTime(end.replace(hour=23, minute=59, second=59))
             self.klineWidget.query_data()
             self.klineWidget.show()
 

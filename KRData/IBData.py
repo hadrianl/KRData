@@ -229,8 +229,8 @@ class IBMarket(metaclass=Singleton):
         return df
 
     @staticmethod
-    def to_df(objects):
-        return pd.DataFrame([r for r in objects.values_list('datetime', 'open', 'high', 'low', 'close', 'volume', 'barCount', 'average')], columns=['datetime', 'open', 'high', 'low', 'close', 'volume', 'barCount', 'average']).set_index('datetime', drop=False)
+    def to_df(query_set: QuerySet) -> pd.DataFrame:
+        return pd.DataFrame([r for r in query_set.values_list('datetime', 'open', 'high', 'low', 'close', 'volume', 'barCount', 'average')], columns=['datetime', 'open', 'high', 'low', 'close', 'volume', 'barCount', 'average']).set_index('datetime', drop=False)
 
     def __getitem__(self, item: (Contract, str, int, slice)):
         if isinstance(item, Contract):
@@ -246,15 +246,21 @@ class IBMarket(metaclass=Singleton):
             return self.MkData.objects(contract__conId=item)
         elif isinstance(item, slice):
             filter_ = {}
+            backward = None
+            forward = None
             if isinstance(item.start, dt.datetime):
                 filter_['datetime__gte'] = item.start - dt.timedelta(hours=8)
             elif isinstance(item.start, str):
                 filter_['datetime__gte'] = parser.parse(item.start) - dt.timedelta(hours=8)
+            elif isinstance(item.start, int):
+                backward = item.start
 
             if isinstance(item.stop, dt.datetime):
                 filter_['datetime__lte'] = item.stop - dt.timedelta(hours=8)
             elif isinstance(item.stop, str):
                 filter_['datetime__lte'] = parser.parse(item.stop) - dt.timedelta(hours=8)
+            elif isinstance(item.stop, int):
+                forward = item.stop
 
             if isinstance(item.step, str):
                 r = re.match(r'([A-Z]+)(\d{2,})', item.step)
@@ -268,7 +274,11 @@ class IBMarket(metaclass=Singleton):
             elif isinstance(item.step, int):
                 filter_['contract__conId'] = item.step
 
-            return self.MkData.objects(**filter_)
+            query_set = self.MkData.objects(**filter_)
+
+            backward = max(0, query_set.count(True) - backward) if backward else None
+            forward = min(query_set.count(True), forward) if forward else None
+            return query_set[backward:forward]
 
     def verifyContract(self, contract: (Contract, str, int)) -> Contract:
         if isinstance(contract, int):

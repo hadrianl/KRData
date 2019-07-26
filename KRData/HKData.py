@@ -381,13 +381,24 @@ class HKMarket:
             query_set = self._MarketData.objects(code=item)
         elif isinstance(item, slice):
             date_range_params = {}
-            if item.start:
+            backward = None
+            forward = None
+            if item.start and isinstance(item.start, (str, dt.datetime)):
                 date_range_params['datetime__gte'] = item.start
+            elif isinstance(item.start, int):
+                backward = item.start
 
-            if item.stop:
+            if item.stop and isinstance(item.stop, (str, dt.datetime)):
                 date_range_params['datetime__lt'] = item.stop
+            elif isinstance(item.stop, int):
+                forward = item.stop
 
             query_set = self._MarketData.objects(code=item.step, **date_range_params)
+            backward = max(query_set.count() - backward, 0) if backward else None
+            forward = min(query_set.count(True), forward) if forward else None
+            query_set = query_set[backward:forward]
+
+            return query_set
         else:
             raise Exception(f'item类型应为{Union[str, slice]}')
 
@@ -395,9 +406,8 @@ class HKMarket:
 
     @staticmethod
     def to_df(query_set: QuerySet) -> pd.DataFrame:
-        df = pd.DataFrame(query_set.as_pymongo()).drop('_id', axis=1) \
-            .set_index('datetime', drop=False)[['datetime', 'open', 'high', 'low', 'close', 'volume', 'trade_date']]
-        return df
+        return pd.DataFrame([r for r in query_set.values_list('datetime', 'open', 'high', 'low', 'close', 'volume', 'trade_date')],
+                          columns=['datetime', 'open', 'high', 'low', 'close', 'volume', 'trade_date']).set_index('datetime', drop=False)
 
 class HKMarketDataBaseDocument(Document):
     code = StringField(required=True)
