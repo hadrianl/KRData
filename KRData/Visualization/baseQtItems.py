@@ -509,7 +509,7 @@ class Crosshair(QtCore.QObject):
             </div>' \
             % (volume))
 
-        maInfo = ''.join(f'<span style="color: {c}; font-size: 18px;">MA{p} : {v:.2f} </span>' for p, c, v in zip([5, 10, 30, 60], ['red', 'blue', 'green', 'DeepPink'], mas))
+        maInfo = ''.join(f'<span style="color: {c}; font-size: 18px;">{p} : {v:.2f} </span>' for p, c, v in zip(mas.dtype.names, ['red', 'blue', 'green', 'DeepPink'], mas))
         self.__textMAs.setHtml(
             '<div style="text-align: right">\
                           %s\

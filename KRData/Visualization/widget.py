@@ -14,12 +14,13 @@ from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 from PyQt5 import QtCore
 import pyqtgraph as pg
+import pyqtgraph.exporters
 from functools import partial
 from collections import deque
 from .baseQtItems import KeyWraper, CandlestickItem, MyStringAxis, Crosshair, CustomViewBox
 from ..HKData import HKMarket
 from ..IBData import IBMarket, IBTrade
-from ..util import _concat_executions, load_json_settings
+from ..util import _concat_executions, load_json_settings, save_json_settings
 from typing import Iterable
 import talib
 from dateutil import parser
@@ -28,10 +29,12 @@ EVENT_BAR_UPDATE = 'eBarUpdate'
 DEFAULT_MA_SETTINGS = {'5': 'r', '10': 'b', '30': 'g', '60': 'm'}
 DEFAULT_MACD_SETTINGS = {'fastperiod': 12, 'slowperiod': 26, 'signalperiod': 9}
 DEFAULT_TRADE_MARK_SETTINGS = {'long': {'angle': 90, 'brush': 'b', 'headLen': 15}, 'short': {'angle': -90, 'brush': 'y', 'headLen': 15}}
+DEFAULT_ACCOUNT_SETTINGS = ''
 SETTINGS = load_json_settings('visual_settings.json')
 MA_SETTINGS = SETTINGS.get('MA', DEFAULT_MA_SETTINGS)
 TRADE_MARK_SETTINGS = SETTINGS.get('TradeMark', DEFAULT_TRADE_MARK_SETTINGS)
 MACD_SETTINGS = SETTINGS.get('MACD', DEFAULT_MACD_SETTINGS)
+ACCOUNT_SETTINGS = SETTINGS.get('ACCOUNT', DEFAULT_ACCOUNT_SETTINGS)
 MAX_LEN = 3000
 
 class KLineWidget(KeyWraper):
@@ -95,6 +98,7 @@ class KLineWidget(KeyWraper):
         self.dictOrder = {}
         self.arrows = []
         self.tradeArrows = []
+        self.tradeLines = []
         # self.tradeTexts = []
         self.orderLines = {}
 
@@ -165,12 +169,16 @@ class KLineWidget(KeyWraper):
         for inteval in ['1min', '5min', '15min', '30min', '60min', '1day']:
             self.interval_combo.addItem(inteval)
 
+        # self.export_btn = QPushButton('保存')
+        # self.export_btn.clicked.connect(self.export_image)
+
         self.interval_combo.currentTextChanged.connect(self.change_querier_period)
         data_params_layout = QHBoxLayout()
         data_params_layout.addWidget(self.symbol_line)
         data_params_layout.addWidget(self.interval_combo)
         data_params_layout.addWidget(self.indComboBox)
         data_params_layout.addStretch()
+        # data_params_layout.addWidget(self.export_btn)
         self.data_params_layout = data_params_layout
 
 
@@ -180,14 +188,19 @@ class KLineWidget(KeyWraper):
         self.datetime_to.setDisplayFormat('yyyy-MM-dd HH:mm:ss')
         self.datetime_from.setCalendarPopup(True)
         self.datetime_to.setCalendarPopup(True)
+
+        self.trade_links = QCheckBox("Trade Link")
+        self.trade_links.stateChanged.connect(self.refreshTradeLinks)
+
         now = dt.datetime.now()
         self.datetime_from.setDateTime(now - dt.timedelta(days=1))
         self.datetime_to.setDateTime(now)
         timerange_layout = QHBoxLayout()
         timerange_layout.addWidget(self.datetime_from)
         timerange_layout.addWidget(self.datetime_to)
+        timerange_layout.addWidget(self.trade_links)
         timerange_layout.addStretch()
-        self.account_line = QLineEdit('')
+        self.account_line = QLineEdit(ACCOUNT_SETTINGS)
 
 
         def sourceState(btn):
@@ -245,6 +258,17 @@ class KLineWidget(KeyWraper):
         # self.query_data()
 
         # ----------------------------------------------------------------------
+    def closeEvent(self, a0: QCloseEvent) -> None:
+        super().closeEvent(a0)
+        SETTINGS['ACCOUNT'] = self.account_line.text()
+        save_json_settings('visual_settings.json', SETTINGS)
+
+    # def export_image(self):
+    #     exporter = pg.exporters.SVGExporter(self.lay_KL)
+    #     # print( exporter.parameters())
+    #     # exporter.parameters()['width'] = 100
+    #     # exporter.parameters()['height'] = 40
+    #     exporter.export(f'{self.symbol_line.text()}.svg')
 
     def open_executions_file(self):
         fname = QFileDialog.getOpenFileName(self, '选择交易文件', './')
@@ -272,6 +296,7 @@ class KLineWidget(KeyWraper):
     #         self._query_set = self._querier[::self.symbol]
 
     def query_data(self):
+        # self.clearData()
         start = self.datetime_from.dateTime().toPyDateTime()
         end = self.datetime_to.dateTime().toPyDateTime()
         symbol = self.symbol_line.text()
@@ -489,6 +514,13 @@ class KLineWidget(KeyWraper):
         for arrow in self.tradeArrows:
             self.pwKL.removeItem(arrow)
 
+        for l in self.tradeLines:
+            self.pwKL.removeItem(l)
+
+        self.tradeArrows = []
+        self.tradeLines = []
+
+        pt = None
         for i, t in enumerate(self.listTrade):
             if t.direction == 'long':
                 arrow = pg.ArrowItem(pos=(t.time_int, t.price), angle=TRADE_MARK_SETTINGS['long']['angle'],
@@ -504,6 +536,28 @@ class KLineWidget(KeyWraper):
                 # text = pg.TextItem(f'{t.size}@{t.price}', color='y', anchor=(t.time_int, t.price), rotateAxis=45)
                 self.pwKL.addItem(arrow)
                 self.tradeArrows.append(arrow)
+
+            if pt and pt.direction != t.direction:
+                s = min(pt.size, t.size)
+                ptv = s * (pt.price if pt.direction == 'short' else -pt.price)
+                tv = s * (t.price if t.direction == 'short' else -t.price)
+                pen = pg.mkPen('r' if ptv + tv > 0 else 'g', width=1, style=QtCore.Qt.DashLine)
+                line = pg.LineSegmentROI([(pt.time_int, pt.price), (t.time_int, t.price)], pen=pen, movable=False)
+
+                self.tradeLines.append(line)
+            pt = t
+
+        if self.trade_links.checkState():
+            for l in self.tradeLines:
+                self.pwKL.addItem(l)
+
+    def refreshTradeLinks(self, b):
+        if b:
+            for l in self.tradeLines:
+                self.pwKL.addItem(l)
+        else:
+            for l in self.tradeLines:
+                self.pwKL.removeItem(l)
 
     def plotMark(self):
         """显示开平仓信号"""
@@ -754,6 +808,7 @@ class KLineWidget(KeyWraper):
         self.listTrade = []
         self.dictOrder = {}
         self.tradeArrows = []
+        self.tradeLines = []
         self.orderLines = {}
 
     # ----------------------------------------------------------------------
@@ -785,7 +840,7 @@ class KLineWidget(KeyWraper):
         """
         # 设置中心点时间
         # 绑定数据，更新横坐标映射，更新Y轴自适应函数，更新十字光标映射
-        for p in DEFAULT_MA_SETTINGS.keys():
+        for p in MA_SETTINGS.keys():
             datas[f'ma{p}'] = talib.MA(datas['close'].values, int(p))
 
         datas['dif'], datas['dea'], datas['macd'] = talib.MACDEXT(datas['close'].values, fastperiod=MACD_SETTINGS['fastperiod'], fastmatype=1,
@@ -807,7 +862,7 @@ class KLineWidget(KeyWraper):
         self.listBar = datas[['time_int', 'open', 'close', 'low', 'high']].to_records(False)
         self.listHigh = list(datas['high'])
         self.listLow = list(datas['low'])
-        self.listMA = datas[[f'ma{p}' for p in DEFAULT_MA_SETTINGS.keys()]].to_records(False)
+        self.listMA = datas[[f'ma{p}' for p in MA_SETTINGS.keys()]].to_records(False)
         self.listMACD = datas[['time_int', 'dif', 'dea', 'macd']].to_records(False)
         self.listINCMUL = datas[['time_int', 'inc', 'inc_std', 'inc_multiple']].to_records(False)
         # self.listOpenInterest = list(datas['openInterest'])
@@ -972,7 +1027,7 @@ class TradesMonitor(QWidget):
         vbox.addWidget(table)
 
         self.setLayout(vbox)
-        self.klineWidget = KLineWidget(data_source='HK', review_mode='backtest')
+        self.klineWidget = KLineWidget(data_source='HK', review_mode='backtest', parent=self)
         self.klineWidget.executions_file_btn.setEnabled(False)
         self.klineWidget.pwKL.removeItem(self.klineWidget.candle.tickLine)
         self.left_btn = QToolButton()
