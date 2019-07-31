@@ -2,3 +2,4 @@ pymongo
 click
 mongoengine
 mpl_finance
+ib_insync

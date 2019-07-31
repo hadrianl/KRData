@@ -5,8 +5,6 @@
 # @File    : __main__
 import click
 from .IBTradeRecorder import save_ib_trade
-from .CTPDataRecorder import CTPTickRecorder
-from .IBDataRecorder import IBTickRecorder
 import pandas as pd
 import datetime as dt
 import multiprocessing
@@ -14,6 +12,7 @@ import time
 
 
 def record_data_process(dbhost, dbport, user, password, ctpfronturl_md, ctpfronturl_td, ctpuser, ctppwd, ctpbroker):
+    from .CTPDataRecorder import CTPTickRecorder
     data_recorder = CTPTickRecorder()
     click.echo(f'连接数据库->User:{user}  Host:{dbhost} Port:{dbport}')
     data_recorder.connectDB(user, password, dbhost, dbport)
@@ -95,6 +94,7 @@ def save_ctp_ticker(dbhost, dbport, user, password, ctpfronturl_md, ctpfronturl_
 @click.option('--clientId', default=9, help='IB clientId')
 @click.argument('ins_list_file')
 def save_ib_ticker(dbhost, dbport, user, password, ibhost, ibport, clientid, ins_list_file):
+    from .IBDataRecorder import IBTickRecorder
     click.echo(f'获取合约列表->')
     ins = pd.read_csv(ins_list_file, header=None)
     ins_list = ins.iloc[:, 0].tolist()
