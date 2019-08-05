@@ -913,6 +913,7 @@ class ExecutionsMonitor(QWidget):
         """"""
         super().__init__(parent)
         self.executions = executions
+        self.executions_groupby_date = None
         self._selected_executions = []
         self.init_ui()
 
@@ -940,58 +941,108 @@ class ExecutionsMonitor(QWidget):
         table = self.table
         table.clear()
         # table.cellChanged.connect(self.visulize)
-        fields = [k for k in self.executions[0]]
-        table.setColumnCount(len(fields) + 1)
-        table.setRowCount(len(self.executions))
-        table.setHorizontalHeaderLabels(['ID'] + fields)
+        # fields = [k for k in self.executions[0]]
+        # table.setColumnCount(len(fields) + 1)
+        # table.setRowCount(len(self.executions))
+        # table.setHorizontalHeaderLabels(['ID'] + fields)
+        # table.verticalHeader().setVisible(False)
+        #
+        # for r, tradeData in enumerate(self.executions):
+        #     check = QTableWidgetItem()
+        #     check.setData(Qt.DisplayRole, r)
+        #     check.setCheckState(QtCore.Qt.Unchecked)
+        #     table.setItem(r, 0, check)
+        #     for c, k in enumerate(fields):
+        #         v = tradeData.get(k)
+        #         cell = QTableWidgetItem()
+        #         cell.setFlags(QtCore.Qt.ItemIsEnabled)
+        #         cell.setData(Qt.DisplayRole, v)
+        #
+        #         cell.setTextAlignment(QtCore.Qt.AlignCenter)
+        #         table.setItem(r, c + 1, cell)
+
+        table.setColumnCount(7)
+        table.setRowCount(len(self.executions_groupby_date))
+        table.setHorizontalHeaderLabels(['ID', 'tradeDate', 'symbol', 'long_size', 'long_avg_price', 'short_size', 'short_avg_price'])
         table.verticalHeader().setVisible(False)
 
-        for r, tradeData in enumerate(self.executions):
-            check = QTableWidgetItem()
-            check.setData(Qt.DisplayRole, r)
-            check.setCheckState(QtCore.Qt.Unchecked)
-            table.setItem(r, 0, check)
-            for c, k in enumerate(fields):
-                v = tradeData.get(k)
-                cell = QTableWidgetItem()
-                cell.setFlags(QtCore.Qt.ItemIsEnabled)
-                cell.setData(Qt.DisplayRole, v)
+        for r, ((t, s), data) in  enumerate(self.executions_groupby_date):
+            # print(t, s)
+            _id = QTableWidgetItem()
+            _id.setData(Qt.DisplayRole, r)
+            table.setItem(r, 0, _id)
 
-                cell.setTextAlignment(QtCore.Qt.AlignCenter)
-                table.setItem(r, c + 1, cell)
+            tradeDate = QTableWidgetItem()
+            tradeDate.setData(Qt.DisplayRole, f'{t}')
+            table.setItem(r, 1, tradeDate)
 
-        table.cellChanged.connect(self.visulize)
+            symbol = QTableWidgetItem()
+            symbol.setData(Qt.DisplayRole, f'{s}')
+            table.setItem(r, 2, symbol)
+
+            long_size = data[data.direction=='long']['size']
+            long_price = data[data.direction=='long']['price']
+            short_size = data[data.direction=='short']['size']
+            short_price = data[data.direction == 'short']['price']
+            long_size_total = long_size.sum()
+            long_avg_price = (long_price * long_size).sum() / long_size_total
+            short_size_total = short_size.sum()
+            short_avg_price = (short_price * short_size).sum() / short_size_total
+            # print(long_size_total, long_avg_price, short_size_total, short_avg_price)
+
+            lst = QTableWidgetItem()
+            lst.setData(Qt.DisplayRole, int(long_size_total))
+            lst.setFlags(QtCore.Qt.ItemIsEnabled)
+            table.setItem(r, 3, lst)
+
+            lap = QTableWidgetItem()
+            lap.setData(Qt.DisplayRole, float(long_avg_price))
+            lap.setFlags(QtCore.Qt.ItemIsEnabled)
+            table.setItem(r, 4, lap)
+
+            sst = QTableWidgetItem()
+            sst.setData(Qt.DisplayRole, int(short_size_total))
+            sst.setFlags(QtCore.Qt.ItemIsEnabled)
+            table.setItem(r, 5, sst)
+
+            sap = QTableWidgetItem()
+            sap.setData(Qt.DisplayRole, float(short_avg_price))
+            table.setItem(r, 6, sap)
+            sap.setFlags(QtCore.Qt.ItemIsEnabled)
+
+        table.cellDoubleClicked.connect(self.visulize)
         table.setSortingEnabled(True)
 
     def read_trades(self):
         fname = QFileDialog.getOpenFileName(self, '选择交易执行文件', './')
         if fname[0]:
-            import pickle
-            with open(fname[0], 'rb') as f:
-                self.executions = pickle.load(f)
-
+            # import pickle
+            # with open(fname[0], 'rb') as f:
+            #     self.executions = pickle.load(f)
+            self.executions = pd.read_excel(fname[0])
+            if 'tradeDate' not in self.executions.columns:
+                self.executions['tradeDate'] = self.executions.datetime.apply(lambda d: d.date())
+            self.executions_groupby_date = self.executions.groupby(['tradeDate', 'symbol'])
             self.refresh_table()
 
     def visulize(self, row, column):
         if column == 0:
             r = int(self.table.item(row, 0).text())
-            if self.table.item(row, column).checkState():
-                self._selected_executions.append(self.executions[r])
-            else:
-                self._selected_executions.remove(self.executions[r])
+            _date = self.table.item(row, 1).text()
+            symbol = self.table.item(row, 2).text()
+            self._selected_executions = self.executions_groupby_date.get_group((_date, symbol)).to_dict('records')
 
             if self._selected_executions:
                 self.klineWidget.setExecutions(self._selected_executions)
                 start = self._selected_executions[0]['datetime']
                 end = self._selected_executions[-1]['datetime']
                 start = start if isinstance(start, dt.datetime) else parser.parse(start)
-                end = start if isinstance(end, dt.datetime) else parser.parse(end)
+                end = end if isinstance(end, dt.datetime) else parser.parse(end)
 
-                if not self.klineWidget.symbol_line.text():
-                    self.klineWidget.symbol_line.setText(f'HSI{start.strftime("%y%m")}')
+                self.klineWidget.symbol_line.setText(symbol)
 
-                self.klineWidget.datetime_from.setDateTime(start - dt.timedelta(minutes=120))
-                self.klineWidget.datetime_to.setDateTime(end + dt.timedelta(minutes=120))
+                self.klineWidget.datetime_from.setDateTime(start.replace(hour=0, minute=0, second=0))
+                self.klineWidget.datetime_to.setDateTime(end.replace(hour=23, minute=59, second=59))
                 self.klineWidget.query_data()
                 self.klineWidget.show()
                 self.klineWidget.setFocus()

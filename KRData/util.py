@@ -574,6 +574,36 @@ def save_json_settings(filename: str, data: dict):
     with open(filepath, mode='w+') as f:
         json.dump(data, f, indent=4)
 
+def _convertSymbolName(localSymbol):
+    pat = '([A-Za-z0-9]{3})([FGHJKMNQUVXZ]{1})(\d{1})'
+
+    matched = re.match(pat, localSymbol)
+
+    if not matched:
+        raise Exception(f'Symbol not match pattern -> {pat}')
+
+    symbol = f'{matched[1]}1{matched[3]}{FUTURE_LETTER2NUMBER[matched[2]]}'
+    return symbol
+
+
+def _formatTrades(df):
+    def checkDirection(s):
+        d = ((s.Bqty > 0) << 1) + (s.Sqty > 0)
+        if d == 2:
+            return 'long', s.Bqty
+        elif d == 1:
+            return 'short', s.Sqty
+        else:
+            return '', s.Bqty + s.Sqty
+
+    s = df.apply(checkDirection, axis=1)
+    df['direction'], df['size'] = s.str[0], s.str[1]
+    df['symbol'] = df.Prod.apply(_convertSymbolName)
+    return df[['TradeDate', 'TradeTime', 'direction', 'size', 'symbol', 'Price']].rename(
+        columns={'TradeDate': 'tradeDate', 'TradeTime': 'datetime', 'Price': 'price'})
+
+
+FUTURE_LETTER2NUMBER = {'F': '01', 'G': '02', 'H': '03', 'J': '04', 'K': '05', 'M': '06', 'N': '07', 'Q': '08', 'U': '09', 'V': '10', 'X': '11', 'Z': '12'}
 
 
 DEFALUT_CHART_COLOR = {'ma5': 'r', 'ma10': 'b', 'ma30': 'g', 'ma60': 'm',
