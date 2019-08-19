@@ -1024,7 +1024,8 @@ class ExecutionsMonitor(QWidget):
             _, extension = os.path.splitext(fname[0])
             if extension == 'pkl':
                 with open(fname[0], 'rb') as f:
-                    self.executions = pickle.load(f)
+                    executions_list = pickle.load(f)
+                    self.executions = pd.DataFrame(executions_list)
             else:
                 self.executions = pd.read_excel(fname[0])
 
