@@ -1019,7 +1019,15 @@ class ExecutionsMonitor(QWidget):
             # import pickle
             # with open(fname[0], 'rb') as f:
             #     self.executions = pickle.load(f)
-            self.executions = pd.read_excel(fname[0])
+            import pickle
+            import os
+            _, extension = os.path.splitext(fname[0])
+            if extension == 'pkl':
+                with open(fname[0], 'rb') as f:
+                    self.executions = pickle.load(f)
+            else:
+                self.executions = pd.read_excel(fname[0])
+
             if 'tradeDate' not in self.executions.columns:
                 self.executions['tradeDate'] = self.executions.datetime.apply(lambda d: d.date())
             self.executions_groupby_date = self.executions.groupby(['tradeDate', 'symbol'])
@@ -1139,8 +1147,24 @@ class TradesMonitor(QWidget):
         fname = QFileDialog.getOpenFileName(self, '选择交易文件', './')
         if fname[0]:
             import pickle
-            with open(fname[0], 'rb') as f:
-                self.trades = pickle.load(f)
+            import os
+            _, extension = os.path.splitext(fname[0])
+            if extension == 'pkl':
+                with open(fname[0], 'rb') as f:
+                    self.trades = pickle.load(f)
+            else:
+                data = pd.read_excel(fname[0])
+                self.trades = []
+                for _, t in data.iterrows():
+                    d = {}
+                    for i in t.index:
+                        splited = i.split('_')
+                        if len(splited) == 2:
+                            d.setdefault(splited[1], {})[splited[0]] = t[i]
+                        elif len(splited) == 1:
+                            d[splited[0]] == t[i]
+                    else:
+                        self.trades.append(d)
 
             self.refresh_table()
 
