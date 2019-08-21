@@ -95,6 +95,7 @@ class KLineWidget(KeyWraper):
         self.listMACD = []
         self.listINCMUL = []
         self.listTrade = []
+        self.listHolding = []
         self.dictOrder = {}
         self.arrows = []
         self.tradeArrows = []
@@ -826,6 +827,7 @@ class KLineWidget(KeyWraper):
         self.datas = []
 
         self.listTrade = []
+        self.listHolding = []
         self.dictOrder = {}
         self.tradeArrows = []
         self.tradeLines = []
@@ -888,17 +890,28 @@ class KLineWidget(KeyWraper):
         self.listINCMUL = datas[['time_int', 'inc', 'inc_std', 'inc_multiple']].to_records(False)
         # self.listOpenInterest = list(datas['openInterest'])
         self.listSig = [0] * (len(self.datas) - 1) if sigs is None else sigs
+        self.listHolding = []
         if 'trades' in datas.columns:
             trades = []
+            holding = []
+            pos = 0
+            total_value = 0
             for _, row in datas.iterrows():
                 if isinstance(row['trades'], Iterable):
                     for t in row['trades']:
+                        cur_size = t['size'] if t['direction'] == 'long' else -t['size']
+                        pos += cur_size
+                        total_value += t['price'] * cur_size
                         trades.append([row['time_int'], t['direction'], t['price'], t['size']])
+
+                holding.append([row['time_int'], pos, total_value])
             else:
                 if trades:
                     self.listTrade = pd.DataFrame(trades, columns=['time_int', 'direction', 'price', 'size']).to_records(False)
+                    self.listHolding = pd.DataFrame(holding, columns=['time_int', 'pos', 'total_value']).to_records(False)
                 else:
                     self.listTrade = []
+                    self.listHolding = []
         # 成交量颜色和涨跌同步，K线方向由涨跌决定
         datas0 = pd.DataFrame()
         datas0['open'] = datas.apply(lambda x: 0 if x['close'] >= x['open'] else x['volume'], axis=1)
@@ -944,6 +957,13 @@ class ExecutionsMonitor(QWidget):
 
         table = QTableWidget()
         self.table = table
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setSortingEnabled(True)
+        self.table.cellDoubleClicked.connect(self.visulize)
+
 
         self.read_file_btn = QPushButton('读取成交记录')
         self.read_file_btn.clicked.connect(self.read_trades)
@@ -969,15 +989,14 @@ class ExecutionsMonitor(QWidget):
 
     def refresh_table(self):
         table = self.table
-        table.clear()
+        table.clearContents()
 
         table.setColumnCount(13)
         table.setRowCount(len(self.executions_groupby_date))
         table.setHorizontalHeaderLabels(['ID', 'tradeDate', 'symbol', 'long_size', 'long_avg_price', 'short_size', 'short_avg_price',
                                          'net_size', 'net_avg_price', 'net_value',
                                          'holding_pos', 'holding_avg_price', 'holding_value'])
-        table.verticalHeader().setVisible(False)
-
+        table.sortByColumn(0, Qt.AscendingOrder)
         holding_pos = 0
         holding_value = 0
         for r, ((t, s), data) in  enumerate(self.executions_groupby_date):
@@ -1014,58 +1033,47 @@ class ExecutionsMonitor(QWidget):
 
             lst = QTableWidgetItem()
             lst.setData(Qt.DisplayRole, int(long_size_total))
-            lst.setFlags(QtCore.Qt.ItemIsEnabled)
             table.setItem(r, 3, lst)
 
             lap = QTableWidgetItem()
             lap.setData(Qt.DisplayRole, float(long_avg_price))
-            lap.setFlags(QtCore.Qt.ItemIsEnabled)
             table.setItem(r, 4, lap)
 
             sst = QTableWidgetItem()
             sst.setData(Qt.DisplayRole, int(short_size_total))
-            sst.setFlags(QtCore.Qt.ItemIsEnabled)
             table.setItem(r, 5, sst)
 
             sap = QTableWidgetItem()
             sap.setData(Qt.DisplayRole, float(short_avg_price))
             table.setItem(r, 6, sap)
-            sap.setFlags(QtCore.Qt.ItemIsEnabled)
 
             ns = QTableWidgetItem()
             ns.setData(Qt.DisplayRole, float(net_size))
             table.setItem(r, 7, ns)
-            ns.setFlags(QtCore.Qt.ItemIsEnabled)
 
             nap = QTableWidgetItem()
             nap.setData(Qt.DisplayRole, float(net_avg_price))
             table.setItem(r, 8, nap)
-            nap.setFlags(QtCore.Qt.ItemIsEnabled)
 
             nv = QTableWidgetItem()
             nv.setData(Qt.DisplayRole, float(net_value))
             table.setItem(r, 9, nv)
-            nv.setFlags(QtCore.Qt.ItemIsEnabled)
 
             hp = QTableWidgetItem()
             hp.setData(Qt.DisplayRole, float(holding_pos))
             table.setItem(r, 10, hp)
-            hp.setFlags(QtCore.Qt.ItemIsEnabled)
 
             hvp = QTableWidgetItem()
             hvp.setData(Qt.DisplayRole, float(holding_avg_price))
             table.setItem(r, 11, hvp)
-            hvp.setFlags(QtCore.Qt.ItemIsEnabled)
 
             hv = QTableWidgetItem()
             hv.setData(Qt.DisplayRole, float(holding_value))
             table.setItem(r, 12, hv)
-            hv.setFlags(QtCore.Qt.ItemIsEnabled)
 
             holding_value = holding_value if holding_pos != 0 else 0
 
-        table.cellDoubleClicked.connect(self.visulize)
-        table.setSortingEnabled(True)
+        table.resizeColumnsToContents()
 
     def read_trades(self):
         fname = QFileDialog.getOpenFileName(self, '选择交易执行文件', './')

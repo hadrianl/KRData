@@ -434,6 +434,7 @@ class Crosshair(QtCore.QObject):
             preClosePrice = lastdata['close']
             # tradePrice = abs(self.master.listSig[xAxis])
             trades = self.master.listTrade[self.master.listTrade['time_int']==xAxis]
+            pos = self.master.listHolding[xAxis]
             mas = self.master.listMA[xAxis]
 
         except Exception as e:
@@ -480,6 +481,8 @@ class Crosshair(QtCore.QObject):
 
         tradeStr = ''.join(f'<span style="color: {"yellow" if t["direction"] == "short" else "blue"}; font-size: 16px;">'
                            f'{"↓" if t["direction"] == "short" else "↑"}{t["size"]}@{t["price"]}</span><br>' for t in trades)
+
+        posStr = f'{pos["pos"]}@{pos["total_value"]/pos["pos"] if pos["pos"] != 0 else pos["total_value"]: .1f}'
         self.__textInfo.setHtml(
             u'<div style="text-align: center; background-color:#000">\
                 <span style="color: white;  font-size: 16px;">日期</span><br>\
@@ -494,9 +497,10 @@ class Crosshair(QtCore.QObject):
                 <span style="color: white;  font-size: 16px;">(量) %d</span><br>\
                 <span style="color: yellow; font-size: 16px;">成交 </span><br>\
                 %s\
+                <span style="color: yellow; font-size: 16px;">持仓 %s</span><br>\
             </div>' \
             % (dateText, timeText, cOpen, openPrice, cHigh, highPrice, \
-               cLow, lowPrice, cClose, closePrice, volume, tradeStr))
+               cLow, lowPrice, cClose, closePrice, volume, tradeStr, posStr))
         self.__textDate.setHtml(
             '<div style="text-align: center">\
                 <span style="color: yellow; font-size: 18px;">%s</span>\
