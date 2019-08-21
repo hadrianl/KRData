@@ -101,6 +101,7 @@ class KLineWidget(KeyWraper):
         self.tradeLines = []
         # self.tradeTexts = []
         self.orderLines = {}
+        self.splitLines = []
 
         # 所有K线上信号图
         self.allColor = deque(['blue', 'green', 'yellow', 'white'])
@@ -448,6 +449,7 @@ class KLineWidget(KeyWraper):
                 curve.setData(self.listMA[curve.name()][xmin:xmax])
             self.plotMark()  # 显示开平仓信号位置
             self.plotTradeMark()
+            self.plotSplitLines()
 
     # ----------------------------------------------------------------------
     def plotInd(self, xmin=0, xmax=-1):
@@ -558,6 +560,24 @@ class KLineWidget(KeyWraper):
         else:
             for l in self.tradeLines:
                 self.pwKL.removeItem(l)
+
+    def plotSplitLines(self):
+        for sl in self.splitLines:
+            self.pwKL.removeItem(sl)
+        else:
+            self.splitLines.clear()
+
+        pre_x = 0
+        for x in self.axisTime.x_values.item():
+            pre_t = self.axisTime.xdict[pre_x].time()
+            t = self.axisTime.xdict[x].time()
+            if  pre_t < dt.time(9, 0) < t or pre_t < dt.time(17, 0) < t or t <  dt.time(17, 0) < pre_t :
+                sl = pg.InfiniteLine(angle=90, movable=False, pen=pg.mkPen(color='w', width=0.8, style=QtCore.Qt.DashDotLine))
+                sl.setPos((pre_x + x)/2)
+                self.pwKL.addItem(sl)
+                self.splitLines.append(sl)
+
+            pre_x = x
 
     def plotMark(self):
         """显示开平仓信号"""
@@ -810,6 +830,7 @@ class KLineWidget(KeyWraper):
         self.tradeArrows = []
         self.tradeLines = []
         self.orderLines = {}
+        self.splitLines = []
 
     # ----------------------------------------------------------------------
     def clearSig(self, main=True):
@@ -902,7 +923,6 @@ class KLineWidget(KeyWraper):
         self.crosshair.signal.emit((None, None))
 
 
-
 class ExecutionsMonitor(QWidget):
     """
     For viewing trade result.
@@ -936,36 +956,30 @@ class ExecutionsMonitor(QWidget):
         self.klineWidget = KLineWidget(data_source='HK', review_mode='backtest')
         self.klineWidget.executions_file_btn.setEnabled(False)
 
+        self.left_btn = QToolButton()
+        self.right_btn = QToolButton()
+        self.left_btn.setArrowType(Qt.LeftArrow)
+        self.right_btn.setArrowType(Qt.RightArrow)
+        self._row = 0
+        self.klineWidget.data_params_layout.addWidget(self.left_btn)
+        self.klineWidget.data_params_layout.addWidget(self.right_btn)
+        self.left_btn.clicked.connect(self.pre_visual)
+        self.right_btn.clicked.connect(self.nxt_visual)
+
 
     def refresh_table(self):
         table = self.table
         table.clear()
-        # table.cellChanged.connect(self.visulize)
-        # fields = [k for k in self.executions[0]]
-        # table.setColumnCount(len(fields) + 1)
-        # table.setRowCount(len(self.executions))
-        # table.setHorizontalHeaderLabels(['ID'] + fields)
-        # table.verticalHeader().setVisible(False)
-        #
-        # for r, tradeData in enumerate(self.executions):
-        #     check = QTableWidgetItem()
-        #     check.setData(Qt.DisplayRole, r)
-        #     check.setCheckState(QtCore.Qt.Unchecked)
-        #     table.setItem(r, 0, check)
-        #     for c, k in enumerate(fields):
-        #         v = tradeData.get(k)
-        #         cell = QTableWidgetItem()
-        #         cell.setFlags(QtCore.Qt.ItemIsEnabled)
-        #         cell.setData(Qt.DisplayRole, v)
-        #
-        #         cell.setTextAlignment(QtCore.Qt.AlignCenter)
-        #         table.setItem(r, c + 1, cell)
 
-        table.setColumnCount(7)
+        table.setColumnCount(13)
         table.setRowCount(len(self.executions_groupby_date))
-        table.setHorizontalHeaderLabels(['ID', 'tradeDate', 'symbol', 'long_size', 'long_avg_price', 'short_size', 'short_avg_price'])
+        table.setHorizontalHeaderLabels(['ID', 'tradeDate', 'symbol', 'long_size', 'long_avg_price', 'short_size', 'short_avg_price',
+                                         'net_size', 'net_avg_price', 'net_value',
+                                         'holding_pos', 'holding_avg_price', 'holding_value'])
         table.verticalHeader().setVisible(False)
 
+        holding_pos = 0
+        holding_value = 0
         for r, ((t, s), data) in  enumerate(self.executions_groupby_date):
             # print(t, s)
             _id = QTableWidgetItem()
@@ -985,10 +999,18 @@ class ExecutionsMonitor(QWidget):
             short_size = data[data.direction=='short']['size']
             short_price = data[data.direction == 'short']['price']
             long_size_total = long_size.sum()
-            long_avg_price = (long_price * long_size).sum() / long_size_total
+            long_value_total = (long_price * long_size).sum()
+            long_avg_price = long_value_total / long_size_total
             short_size_total = short_size.sum()
-            short_avg_price = (short_price * short_size).sum() / short_size_total
+            short_value_total = (short_price * short_size).sum()
+            short_avg_price = short_value_total / short_size_total
+            net_size = long_size_total - short_size_total
+            net_value = long_value_total - short_value_total
+            net_avg_price = net_value / net_size if net_size != 0 else np.nan
             # print(long_size_total, long_avg_price, short_size_total, short_avg_price)
+            holding_pos += net_size
+            holding_value = net_value + holding_value
+            holding_avg_price = holding_value /holding_pos if holding_pos !=0 else np.nan
 
             lst = QTableWidgetItem()
             lst.setData(Qt.DisplayRole, int(long_size_total))
@@ -1009,6 +1031,38 @@ class ExecutionsMonitor(QWidget):
             sap.setData(Qt.DisplayRole, float(short_avg_price))
             table.setItem(r, 6, sap)
             sap.setFlags(QtCore.Qt.ItemIsEnabled)
+
+            ns = QTableWidgetItem()
+            ns.setData(Qt.DisplayRole, float(net_size))
+            table.setItem(r, 7, ns)
+            ns.setFlags(QtCore.Qt.ItemIsEnabled)
+
+            nap = QTableWidgetItem()
+            nap.setData(Qt.DisplayRole, float(net_avg_price))
+            table.setItem(r, 8, nap)
+            nap.setFlags(QtCore.Qt.ItemIsEnabled)
+
+            nv = QTableWidgetItem()
+            nv.setData(Qt.DisplayRole, float(net_value))
+            table.setItem(r, 9, nv)
+            nv.setFlags(QtCore.Qt.ItemIsEnabled)
+
+            hp = QTableWidgetItem()
+            hp.setData(Qt.DisplayRole, float(holding_pos))
+            table.setItem(r, 10, hp)
+            hp.setFlags(QtCore.Qt.ItemIsEnabled)
+
+            hvp = QTableWidgetItem()
+            hvp.setData(Qt.DisplayRole, float(holding_avg_price))
+            table.setItem(r, 11, hvp)
+            hvp.setFlags(QtCore.Qt.ItemIsEnabled)
+
+            hv = QTableWidgetItem()
+            hv.setData(Qt.DisplayRole, float(holding_value))
+            table.setItem(r, 12, hv)
+            hv.setFlags(QtCore.Qt.ItemIsEnabled)
+
+            holding_value = holding_value if holding_pos != 0 else 0
 
         table.cellDoubleClicked.connect(self.visulize)
         table.setSortingEnabled(True)
@@ -1036,6 +1090,7 @@ class ExecutionsMonitor(QWidget):
 
     def visulize(self, row, column):
         if column == 0:
+            self._row = row
             r = int(self.table.item(row, 0).text())
             _date = self.table.item(row, 1).text()
             symbol = self.table.item(row, 2).text()
@@ -1056,6 +1111,13 @@ class ExecutionsMonitor(QWidget):
                 self.klineWidget.show()
                 self.klineWidget.setFocus()
 
+    def pre_visual(self):
+        r = max(0, self._row - 1)
+        self.visulize(r, 0)
+
+    def nxt_visual(self):
+        r = min(self.table.rowCount(), self._row + 1)
+        self.visulize(r, 0)
 
 class TradesMonitor(QWidget):
     """
@@ -1192,7 +1254,6 @@ class TradesMonitor(QWidget):
             self.klineWidget.datetime_to.setDateTime(end.replace(hour=23, minute=59, second=59))
             self.klineWidget.query_data()
             self.klineWidget.show()
-
 
     def pre_visual(self):
         r = max(0, self._row - 1)
