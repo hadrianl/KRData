@@ -1084,7 +1084,7 @@ class ExecutionsMonitor(QWidget):
             import pickle
             import os
             _, extension = os.path.splitext(fname[0])
-            if extension == 'pkl':
+            if extension == '.pkl':
                 with open(fname[0], 'rb') as f:
                     executions_list = pickle.load(f)
                     self.executions = pd.DataFrame(executions_list)
@@ -1220,7 +1220,7 @@ class TradesMonitor(QWidget):
             import pickle
             import os
             _, extension = os.path.splitext(fname[0])
-            if extension == 'pkl':
+            if extension == '.pkl':
                 with open(fname[0], 'rb') as f:
                     self.trades = pickle.load(f)
             else:
