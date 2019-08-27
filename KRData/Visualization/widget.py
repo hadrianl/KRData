@@ -29,11 +29,13 @@ EVENT_BAR_UPDATE = 'eBarUpdate'
 DEFAULT_MA_SETTINGS = {'5': 'r', '10': 'b', '30': 'g', '60': 'm'}
 DEFAULT_MACD_SETTINGS = {'fastperiod': 12, 'slowperiod': 26, 'signalperiod': 9}
 DEFAULT_TRADE_MARK_SETTINGS = {'long': {'angle': 90, 'brush': 'b', 'headLen': 15}, 'short': {'angle': -90, 'brush': 'y', 'headLen': 15}}
+DEFAULT_SYMBOL_SETTINGS = ''
 DEFAULT_ACCOUNT_SETTINGS = ''
 SETTINGS = load_json_settings('visual_settings.json')
 MA_SETTINGS = SETTINGS.get('MA', DEFAULT_MA_SETTINGS)
 TRADE_MARK_SETTINGS = SETTINGS.get('TradeMark', DEFAULT_TRADE_MARK_SETTINGS)
 MACD_SETTINGS = SETTINGS.get('MACD', DEFAULT_MACD_SETTINGS)
+SYMBOL_SETTINGS = SETTINGS.get('SYMBOL', DEFAULT_SYMBOL_SETTINGS)
 ACCOUNT_SETTINGS = SETTINGS.get('ACCOUNT', DEFAULT_ACCOUNT_SETTINGS)
 MAX_LEN = 3000
 
@@ -163,7 +165,7 @@ class KLineWidget(KeyWraper):
         # 设置界面
         self.vb = QVBoxLayout()
 
-        self.symbol_line = QLineEdit("")
+        self.symbol_line = QLineEdit(SYMBOL_SETTINGS)
         self.symbol_line.setPlaceholderText('输入产品代码如: HSI1907或者369009605')
         # self.symbol_line.returnPressed.connect(self.subscribe) # todo
 
@@ -262,6 +264,7 @@ class KLineWidget(KeyWraper):
         # ----------------------------------------------------------------------
     def closeEvent(self, a0: QCloseEvent) -> None:
         super().closeEvent(a0)
+        SETTINGS['SYMBOL'] = self.symbol_line.text()
         SETTINGS['ACCOUNT'] = self.account_line.text()
         save_json_settings('visual_settings.json', SETTINGS)
 
