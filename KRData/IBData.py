@@ -183,7 +183,7 @@ class IBMarket(metaclass=Singleton):
 
         return self.to_df(raw_object)
 
-    @lru_cache(maxsize=30)
+    # @lru_cache(maxsize=30)
     def get_bars_from_ib(self, contract: (Contract, str, int), barType='1 min', start=None, end=None, persist=False):
         _contract = self.verifyContract(contract)
         if start is None:
