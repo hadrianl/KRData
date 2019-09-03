@@ -39,7 +39,289 @@ SYMBOL_SETTINGS = SETTINGS.get('SYMBOL', DEFAULT_SYMBOL_SETTINGS)
 ACCOUNT_SETTINGS = SETTINGS.get('ACCOUNT', DEFAULT_ACCOUNT_SETTINGS)
 MAX_LEN = 3000
 
-class KLineWidget(KeyWraper):
+
+from PyQt5 import QtWidgets
+from vnpy.app.realtime_monitor.ui.baseQtItems import MarketDataChartWidget
+from vnpy.trader.object import BarData, TradeData
+from vnpy.trader.constant import Interval, Exchange, Direction, Offset
+
+class KLineWidget(QtWidgets.QWidget):
+
+    # ----------------------------------------------------------------------
+    def __init__(self, data_source='HK', review_mode='live', **kwargs):
+        """Constructor"""
+        super().__init__()
+
+        self.data_source = data_source
+        self.period = kwargs.get('period', '1min')
+
+        if data_source == 'HK':
+            self._querier = HKMarket(self.period)
+        elif data_source == 'IB':
+            self._querier = IBMarket()
+
+        self.review_mode = review_mode
+
+        if review_mode == 'backtest':
+            self.setExecutions(kwargs.get('executions', []))
+        else:
+            self.setExecutions([])
+
+        self.splitLines = []
+        # 调用函数
+        self.initUi()
+        # self.register_event()
+
+    # ----------------------------------------------------------------------
+    #  初始化相关
+    # ----------------------------------------------------------------------
+    def initUi(self):
+        """初始化界面"""
+        self.setWindowTitle('数据可视化')
+        # 主图
+        self.chart = MarketDataChartWidget()
+        # 设置界面
+        self.vb = QVBoxLayout()
+
+        self.symbol_line = QLineEdit(SYMBOL_SETTINGS)
+        self.symbol_line.setPlaceholderText('输入产品代码如: HSI1907或者369009605')
+        # self.symbol_line.returnPressed.connect(self.subscribe) # todo
+
+        self.interval_combo = QComboBox()
+        for inteval in ['1min', '5min', '15min', '30min', '60min', '1day']:
+            self.interval_combo.addItem(inteval)
+
+        self.indicator_combo = QtWidgets.QComboBox()
+        self.indicator_combo.addItems([n for n in self.chart.indicators.keys()])
+        self.indicator_combo.currentTextChanged.connect(self.chart.change_indicator)
+
+        # self.export_btn = QPushButton('保存')
+        # self.export_btn.clicked.connect(self.export_image)
+
+        self.interval_combo.currentTextChanged.connect(self.change_querier_period)
+        data_params_layout = QHBoxLayout()
+        data_params_layout.addWidget(self.symbol_line)
+        data_params_layout.addWidget(self.interval_combo)
+        data_params_layout.addWidget(self.indicator_combo)
+        data_params_layout.addStretch()
+        # data_params_layout.addWidget(self.export_btn)
+        self.data_params_layout = data_params_layout
+
+
+        self.datetime_from = QDateTimeEdit()
+        self.datetime_to = QDateTimeEdit()
+        self.datetime_from.setDisplayFormat('yyyy-MM-dd HH:mm:ss')
+        self.datetime_to.setDisplayFormat('yyyy-MM-dd HH:mm:ss')
+        self.datetime_from.setCalendarPopup(True)
+        self.datetime_to.setCalendarPopup(True)
+
+        # self.trade_links = QCheckBox("Trade Link")
+        # self.trade_links.stateChanged.connect(self.refreshTradeLinks)
+
+        now = dt.datetime.now()
+        self.datetime_from.setDateTime(now - dt.timedelta(days=1))
+        self.datetime_to.setDateTime(now)
+        timerange_layout = QHBoxLayout()
+        timerange_layout.addWidget(self.datetime_from)
+        timerange_layout.addWidget(self.datetime_to)
+        # timerange_layout.addWidget(self.trade_links)
+        timerange_layout.addStretch()
+        self.account_line = QLineEdit(ACCOUNT_SETTINGS)
+
+
+        def sourceState(btn):
+            if btn.text() == 'HK':
+                self._querier = HKMarket(period=self.interval_combo.currentText())
+            elif btn.text() == 'IB':
+                self._querier = IBMarket()
+
+            self.data_source = btn.text()
+
+        source_layout = QHBoxLayout()
+        self.source_HK_btn = QRadioButton('HK')
+        self.source_HK_btn.setChecked(True)
+        self.source_HK_btn.toggled.connect(lambda: sourceState(self.source_HK_btn))
+        self.source_IB_btn = QRadioButton('IB')
+        self.source_IB_btn.setToolTip('使用IB查询已过期合约，只能用IB的产品代号如369009605')
+        self.source_IB_btn.toggled.connect(lambda: sourceState(self.source_IB_btn))
+        source_layout.addWidget(self.source_HK_btn)
+        source_layout.addWidget(self.source_IB_btn)
+        source_layout.addStretch()
+
+        if self.review_mode == 'backtest':
+            self.source_HK_btn.setEnabled(False)
+            self.source_HK_btn.setHidden(True)
+            self.source_IB_btn.setEnabled(False)
+            self.source_IB_btn.setHidden(True)
+            self.account_line.setEnabled(False)
+            self.account_line.setHidden(True)
+
+        self.query_btn = QPushButton('查询')
+        self.query_btn.clicked.connect(self.query_data)
+
+        form = QFormLayout()
+
+        form.addRow(data_params_layout)
+        form.addRow('TIME:', timerange_layout)
+        if self.review_mode == 'live':
+            form.addRow('ACCOUNT:', self.account_line)
+            form.addRow('SOURCE:', source_layout)
+        elif self.review_mode == 'backtest':
+            self.executions_file_btn = QPushButton('读取成交记录')
+            self.executions_file_btn.clicked.connect(self.open_executions_file)
+            form.addRow(self.executions_file_btn)
+
+        form.addRow(self.query_btn)
+
+
+        self.vb.addLayout(form)
+
+        self.vb.addWidget(self.chart)
+        self.setLayout(self.vb)
+        self.resize(1300, 700)
+        # 初始化完成
+        self.initCompleted = True
+        # self.query_data()
+
+        # ----------------------------------------------------------------------
+    def closeEvent(self, a0: QCloseEvent) -> None:
+        super().closeEvent(a0)
+        SETTINGS['SYMBOL'] = self.symbol_line.text()
+        SETTINGS['ACCOUNT'] = self.account_line.text()
+        save_json_settings('visual_settings.json', SETTINGS)
+
+    # def export_image(self):
+    #     exporter = pg.exporters.SVGExporter(self.lay_KL)
+    #     # print( exporter.parameters())
+    #     # exporter.parameters()['width'] = 100
+    #     # exporter.parameters()['height'] = 40
+    #     exporter.export(f'{self.symbol_line.text()}.svg')
+
+    def open_executions_file(self):
+        fname = QFileDialog.getOpenFileName(self, '选择交易文件', './')
+        if fname[0]:
+            try:
+                import pickle
+                with open(fname[0], 'rb') as f:
+                    executions_list = pickle.load(f)
+            finally:
+                if isinstance(self.executions, Iterable):
+                    self.setExecutions(executions_list)
+                    start = self.executions[0]['datetime'] if isinstance(self.executions[0]['datetime'], dt.datetime) else parser.parse(self.executions[0]['datetime'])
+                    end = self.executions[-1]['datetime'] if isinstance(self.executions[-1]['datetime'],
+                                                                         dt.datetime) else parser.parse(
+                        self.executions[-1]['datetime'])
+                    self.datetime_from.setDateTime(start - dt.timedelta(minutes=120))
+                    self.datetime_to.setDateTime(end + dt.timedelta(minutes=120))
+                    self.query_data()
+
+    # def subscribe(self):
+    #     if self.symbol != self.symbol_line.text():
+    #         self.clearData()
+    #         self.symbol = self.symbol_line.text()
+    #         print(self.symbol)
+    #         self._query_set = self._querier[::self.symbol]
+
+    def query_data(self):
+        # self.clearData()
+        self.chart.clear_all()
+        start = self.datetime_from.dateTime().toPyDateTime()
+        end = self.datetime_to.dateTime().toPyDateTime()
+        symbol = self.symbol_line.text()
+
+        if self.data_source == 'HK':
+            query_set1 = self._querier[120:start:symbol]
+            query_set2 = self._querier[start:end:symbol]
+            query_set3 = self._querier[end:120:symbol]
+            data1 = self._querier.to_df(query_set1)
+            data2 = self._querier.to_df(query_set2)
+            data3 = self._querier.to_df(query_set3)
+            datas = pd.concat([data1, data2, data3])
+
+        elif self.data_source == 'IB':
+            contract = self._querier.verifyContract(symbol)
+            barType = {'1min': '1 min', '5min': '5 mins', '15min': '15 mins', '30min': '30 mins', '60min': '60 mins', '1day': '1 day'}.get(self.period,'1 min')
+            datas = self._querier.get_bars_from_ib(contract, barType=barType, start=start, end=end)
+
+
+        if self.review_mode == 'backtest':
+            executions = self.executions
+        elif self.review_mode == 'live':
+            acc_id = self.account_line.text()
+            if acc_id:
+                fills = IBTrade(acc_id)[start:end:symbol]
+                fills = fills.order_by('execution.time')
+
+                executions = [{'datetime': f.execution.time + dt.timedelta(hours=8), 'price': f.execution.price,
+                      'size': f.execution.shares, 'direction': 'long' if f.execution.side == 'BOT' else 'short'} for f in
+                     fills]
+            else:
+                executions = []
+
+        if executions:
+            datas = _concat_executions(datas, executions)
+
+        barList = []
+        tradeList = []
+        for _, d in datas.iterrows():
+            b = BarData('KRData', symbol, Exchange.HKFE, d.datetime, None,
+                        d.volume, 0, d.open, d.high, d.low, d.close)
+            barList.append(b)
+
+        for e in executions:
+            t = TradeData('KRData', symbol, Exchange.HKFE, '', '',
+                          Direction.LONG if e['direction'] == 'long' else Direction.SHORT,
+                          Offset.NONE,
+                          e['price'],
+                          e['size'],
+                          e['datetime'] if isinstance(e['datetime'], dt.datetime) else parser.parse(e['datetime'])
+                          )
+            tradeList.append(t)
+
+        self.chart.update_all(barList, tradeList, [])
+        self.plotSplitLines()
+
+    def setExecutions(self, executions:list):
+        self.executions = executions
+        if self.executions:
+            self.executions.sort(key=lambda t: t['datetime'])
+
+    def change_querier_period(self, period):
+        self.period = period
+        if self.data_source == 'HK':
+            self._querier = HKMarket(period=period)
+
+    def refreshTradeLinks(self, b):
+        if b:
+            for l in self.tradeLines:
+                self.pwKL.addItem(l)
+        else:
+            for l in self.tradeLines:
+                self.pwKL.removeItem(l)
+
+    def plotSplitLines(self):
+        candle = self.chart.get_plot('candle')
+        for sl in self.splitLines:
+            candle.removeItem(sl)
+        else:
+            self.splitLines.clear()
+
+        for _dt, ix in self.chart.dt_ix_map.items():
+            if ix == 0:
+                pre_t = _dt.time()
+                continue
+            t = _dt.time()
+            if  pre_t < dt.time(9, 0) < t or pre_t < dt.time(17, 0) < t or t <  dt.time(17, 0) < pre_t :
+                sl = pg.InfiniteLine(angle=90, movable=False, pen=pg.mkPen(color='w', width=0.8, style=QtCore.Qt.DashDotLine))
+                sl.setPos(ix - 0.5)
+                candle.addItem(sl)
+                self.splitLines.append(sl)
+
+            pre_t = t
+
+
+
+class KLineWidget2(KeyWraper):
     """用于显示价格走势图"""
 
     # 窗口标识
@@ -1162,7 +1444,7 @@ class TradesMonitor(QWidget):
         self.setLayout(vbox)
         self.klineWidget = KLineWidget(data_source='HK', review_mode='backtest', parent=self)
         self.klineWidget.executions_file_btn.setEnabled(False)
-        self.klineWidget.pwKL.removeItem(self.klineWidget.candle.tickLine)
+        # self.klineWidget.pwKL.removeItem(self.klineWidget.candle.tickLine)
         self.left_btn = QToolButton()
         self.right_btn = QToolButton()
         self.left_btn.setArrowType(Qt.LeftArrow)
