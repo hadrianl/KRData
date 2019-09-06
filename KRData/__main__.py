@@ -9,6 +9,7 @@ import pandas as pd
 import datetime as dt
 import multiprocessing
 import time
+from . import __version__
 
 
 def record_data_process(dbhost, dbport, user, password, ctpfronturl_md, ctpfronturl_td, ctpuser, ctppwd, ctpbroker):
@@ -22,7 +23,7 @@ def record_data_process(dbhost, dbport, user, password, ctpfronturl_md, ctpfront
 
 @click.group()
 def cli():
-    click.echo('KRData ToolKit!')
+    click.echo(f'KRData ToolKit!version:{__version__}')
 
 @click.command()
 @click.help_option('-h', '--help')
@@ -134,9 +135,108 @@ def visualExecutions():
     em.show()
     vapp.exec_()
 
+@click.command()
+@click.help_option('-h', '--help', help='获取盈透数据入库VNPY,start与end不填默认上个交易日的数据')
+@click.option('--start', default='', type=str, help='开始日期')
+@click.option('--end', default='', type=str, help='结束日期,不填默认到最新数据')
+@click.argument('vt_symbol')
+def data_record(start, end, vt_symbol):
+    from vnpy.trader.database import database_manager
+    from vnpy.gateway.ib.ib_gateway import IbGateway
+    from vnpy.trader.utility import load_json
+    from vnpy.trader.object import HistoryRequest
+    from vnpy.trader.constant import Interval, Exchange
+    from dateutil import parser
+    from vnpy.event.engine import EventEngine
+    from vnpy.trader.event import EVENT_LOG
+
+    vt_symbol = vt_symbol
+    symbol, exchange = vt_symbol.split('.')
+
+    if not start and not end:
+        offset = 0 if dt.datetime.now().time() > dt.time(17, 0) else 1
+        start = (dt.datetime.today() - dt.timedelta(days=offset + 1)).replace(hour=17, minute=0, second=0, microsecond=0)
+        end = (dt.datetime.today() - dt.timedelta(days=offset)).replace(hour=17, minute=0, second=0, microsecond=0)
+    else:
+        start = parser.parse(start)
+        end = parser.parse(end) if end else end
+
+    ib_settings = load_json('connect_ib.json')
+    ib_settings["客户号"] += 4
+
+    recorder_engine = EventEngine()
+    def log(event):
+        data = event.data
+        print(data.level, data.msg)
+    recorder_engine.register(EVENT_LOG, log)
+    ib = IbGateway(recorder_engine)
+    try:
+        recorder_engine.start()
+        ib.connect(ib_settings)
+
+        if ib.api.client.isConnected():
+            req = HistoryRequest(symbol, Exchange(exchange), start, end, Interval.MINUTE)
+            ib.write_log(f'发起请求#{vt_symbol}, {start}至{end}')
+            his_data = ib.query_history(req)
+            ib.write_log(f'获得数据#{vt_symbol}， {his_data[0].datetime}至{his_data[-1].datetime}, 共{len(his_data)}条')
+            database_manager.save_bar_data(his_data)
+            ib.write_log(f'成功入库')
+        else:
+            ib.write_log('连接失败！请检查客户号是否被占用或IP是否正确')
+    except Exception as e:
+        raise e
+    finally:
+        ib.close()
+        recorder_engine.stop()
+
+@click.command()
+@click.help_option('-h', '--help', help='获取盈透可用的交易合约')
+@click.option('--exchange', default='HKFE', type=str, help='交易所')
+@click.option('--secType', default='FUT',type=str, help='标的类型')
+@click.option('--expired', default='', type=str, help='到期日')
+@click.argument('symbol')
+def search_available_contract(exchange, sectype, expired, symbol):
+    from vnpy.gateway.ib.ib_gateway import IbGateway
+    from vnpy.trader.utility import load_json
+    from vnpy.event.engine import EventEngine
+    from vnpy.trader.event import EVENT_CONTRACT
+    from ibapi.contract import Contract
+    import time
+
+    ib_settings = load_json('connect_ib.json')
+    ib_settings["客户号"] += 4
+
+    contract_engine = EventEngine()
+    def showContract(event):
+        contract = event.data
+        click.echo(contract, color='red')
+    contract_engine.register(EVENT_CONTRACT, showContract)
+    ib = IbGateway(contract_engine)
+    try:
+        contract_engine.start()
+        ib.connect(ib_settings)
+
+        if ib.api.client.isConnected():
+            contract = Contract()
+            contract.symbol = symbol
+            contract.exchange = exchange
+            contract.secType = sectype
+            contract.lastTradeDateOrContractMonth = expired
+            ib.api.client.reqContractDetails(1, contract)
+            time.sleep(1)
+        else:
+            ib.write_log('连接失败！请检查客户号是否被占用或IP是否正确')
+    except Exception as e:
+        raise e
+    finally:
+        ib.close()
+        contract_engine.stop()
+
 cli.add_command(save_ib_trade)
 cli.add_command(save_ctp_ticker)
 cli.add_command(save_ib_ticker)
 cli.add_command(visual)
 cli.add_command(visualTrades)
 cli.add_command(visualExecutions)
+cli.add_command(data_record)
+cli.add_command(search_available_contract)
