@@ -261,6 +261,7 @@ class KLineWidget(QtWidgets.QWidget):
         if executions:
             datas = _concat_executions(datas, executions)
 
+        self.datas = datas
         barList = []
         tradeList = []
         for _, d in datas.iterrows():
@@ -1555,3 +1556,116 @@ class TradesMonitor(QWidget):
     def nxt_visual(self):
         r = min(self.table.rowCount(), self._row + 1)
         self.visulize(r, 0)
+
+class CorrelationMonitor(QWidget):
+    class DataFetcher(QThread):
+        def __init__(self, parent=None):
+            super().__init__(parent)
+            from KRData.HKData import HKFuture
+            self.hf = HKFuture()
+            self.finished.connect(self.parent().show_data_fetch_finished)
+
+        def run(self) -> None:
+            parent = self.parent()
+            if parent:
+                parent.raw_data['HSI'] = self.hf.get_main_contract_bars('HSI', start='20110101')
+
+    def __init__(self):
+        super().__init__()
+        self.raw_data = {}
+        self.period = 0
+        self.data_fetcher = self.DataFetcher(self)
+        self.data_fetcher.start()
+
+        self.init_ui()
+
+    def init_ui(self):
+        self.setWindowTitle('相关性对比')
+        self.target_chart_widget = KLineWidget()
+        self.target_chart_widget.interval_combo.setEnabled(False)
+        self.source_chart_widget = MarketDataChartWidget()
+        self.compare_btn = QPushButton('历史数据对照')
+        self.compare_btn.clicked.connect(self.calc_corr)
+        self.target_chart_widget.indicator_combo.currentTextChanged.connect(self.source_chart_widget.change_indicator)
+
+        self.corr_table = QTableWidget()
+        self.corr_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.corr_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.corr_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.corr_table.verticalHeader().setVisible(False)
+        self.corr_table.setSortingEnabled(True)
+        self.corr_table.cellDoubleClicked.connect(self.show_corr_chart)
+
+
+        self.vb = QHBoxLayout()
+        inner_vb = QVBoxLayout()
+
+        inner_vb.addWidget(self.target_chart_widget)
+        btn_hbox = QHBoxLayout()
+        btn_hbox.addWidget(self.compare_btn)
+        inner_vb.addLayout(btn_hbox)
+        inner_vb.addWidget(self.source_chart_widget)
+
+        self.vb.addLayout(inner_vb, 8)
+        self.vb.addWidget(self.corr_table, 2)
+
+        self.setLayout(self.vb)
+        self.resize(1500, 1000)
+
+    def calc_corr(self):
+        if not self.data_fetcher.isFinished():
+            QMessageBox.critical(self, 'DataFetcher', '数据未加载完毕！', QMessageBox.Ok)
+            return
+        import scipy.stats as st
+        target_data = self.target_chart_widget.datas
+        source_data = self.raw_data['HSI']
+
+        def corr(nd):
+            return st.pearsonr(nd, target_data.close)[0]
+
+        self.period = len(target_data)
+        ret = source_data.close.rolling(self.period).apply(corr)
+
+        table = self.corr_table
+        table.clearContents()
+
+        table.setColumnCount(2)
+        table.setRowCount(len(ret))
+        table.setHorizontalHeaderLabels(['datetime', 'corr'])
+
+        for i, (d, v) in enumerate(ret.items()):
+            dt_cell = QTableWidgetItem()
+            dt_cell.setFlags(QtCore.Qt.ItemIsEnabled)
+            dt_cell.setData(Qt.DisplayRole, str(d))
+            dt_cell.setTextAlignment(QtCore.Qt.AlignCenter)
+
+            corr_cell = QTableWidgetItem()
+            corr_cell.setFlags(QtCore.Qt.ItemIsEnabled)
+            corr_cell.setData(Qt.DisplayRole, 0 if np.isnan(v) else v)
+            corr_cell.setTextAlignment(QtCore.Qt.AlignCenter)
+
+            table.setItem(i, 0, dt_cell)
+            table.setItem(i, 1, corr_cell)
+
+        table.sortByColumn(1, Qt.DescendingOrder)
+
+    def show_corr_chart(self, r, c):
+        end = self.corr_table.item(r, 0).text()
+
+        source_data = self.raw_data['HSI']
+
+        start = source_data.datetime.shift(self.period)[end]
+        # end = source_data.datetime.shift(-30)[end]
+
+        data = source_data.loc[start:end]
+        barList = []
+        for _, d in data.iterrows():
+            b = BarData('KRData', d.code, Exchange.HKFE, d.datetime, None,
+                        d.volume, 0, d.open, d.high, d.low, d.close)
+            barList.append(b)
+
+        self.source_chart_widget.clear_all()
+        self.source_chart_widget.update_all(barList, [], [])
+
+    def show_data_fetch_finished(self):
+        QMessageBox.information(self, 'DataFetcher', '数据加载完毕！', QMessageBox.Ok)

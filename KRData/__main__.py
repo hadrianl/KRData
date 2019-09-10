@@ -118,6 +118,14 @@ def visual(review_mode):
     vapp.exec_()
 
 @click.command()
+def visualcorr():
+    from .Visualization import create_qapp, CorrelationMonitor
+    vapp = create_qapp()
+    kw = CorrelationMonitor()
+    kw.showMaximized()
+    vapp.exec_()
+
+@click.command()
 # @click.argument('pkl_file')
 def visualTrades():
     from .Visualization import create_qapp, TradesMonitor
@@ -236,6 +244,7 @@ cli.add_command(save_ib_trade)
 cli.add_command(save_ctp_ticker)
 cli.add_command(save_ib_ticker)
 cli.add_command(visual)
+cli.add_command(visualcorr)
 cli.add_command(visualTrades)
 cli.add_command(visualExecutions)
 cli.add_command(data_record)
