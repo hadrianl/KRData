@@ -280,6 +280,7 @@ class IBMarket(metaclass=Singleton):
             forward = min(query_set.count(True), forward) if forward else None
             return query_set[backward:forward]
 
+    @lru_cache(maxsize=30)
     def verifyContract(self, contract: (Contract, str, int)) -> Contract:
         if isinstance(contract, int):
             contract = Contract(conId=contract)
