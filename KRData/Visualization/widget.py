@@ -45,6 +45,7 @@ from PyQt5 import QtWidgets
 from vnpy.app.realtime_monitor.ui.baseQtItems import MarketDataChartWidget
 from vnpy.trader.object import BarData, TradeData
 from vnpy.trader.constant import Interval, Exchange, Direction, Offset
+from vnpy.trader.utility import BarGenerator
 
 class KLineWidget(QtWidgets.QWidget):
 
@@ -652,6 +653,9 @@ class TradesMonitor(QWidget):
         self.visulize(r, 0)
 
 class CorrelationMonitor(QWidget):
+    signal_new_corr = QtCore.pyqtSignal((dt.datetime, float, float))
+    signal_process = QtCore.pyqtSignal(int)
+
     class DataFetcher(QThread):
         def __init__(self, parent=None):
             super().__init__(parent)
@@ -662,12 +666,14 @@ class CorrelationMonitor(QWidget):
         def run(self) -> None:
             parent = self.parent()
             if parent:
-                parent.raw_data['HSI'] = self.hf.get_main_contract_bars('HSI', start='20110101')
+                parent.raw_data['HSI'] = self.hf.get_main_contract_bars('HSI', start='20190101')
 
     def __init__(self):
         super().__init__()
+        self.interval = 1
         self.raw_data = {}
         self.period = 0
+        self._selected_row = 0
         self.data_fetcher = self.DataFetcher(self)
         self.hkm = HKMarket()
         self.data_fetcher.start()
@@ -676,13 +682,20 @@ class CorrelationMonitor(QWidget):
 
     def init_ui(self):
         self.setWindowTitle('相关性对比')
+        self.setAcceptDrops(True)
         self.target_chart_widget = KLineWidget()
-        self.target_chart_widget.interval_combo.setEnabled(False)
+        # self.target_chart_widget.interval_combo.setEnabled(False)
         self.source_chart_widget = MarketDataChartWidget()
         self.compare_btn = QPushButton('历史数据对照')
-        self.compare_btn.clicked.connect(self.calc_corr)
-        self.forward_num = QtWidgets.QLineEdit('30')
-        self.target_chart_widget.indicator_combo.currentTextChanged.connect(self.source_chart_widget.change_indicator)
+        self.interval_combo = QComboBox()
+        for i in [1, 5, 10, 15, 30, 60]:
+            self.interval_combo.addItem(f'{i} min', i)
+
+        self.save_btn = QPushButton('保存数据')
+
+        # self.compare_btn.clicked.connect(self.calc_corr)
+        # self.forward_num = QtWidgets.QLineEdit('30')
+        # self.target_chart_widget.indicator_combo.currentTextChanged.connect(self.source_chart_widget.change_indicator)
 
         self.corr_table = QTableWidget()
         self.corr_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -690,16 +703,20 @@ class CorrelationMonitor(QWidget):
         self.corr_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.corr_table.verticalHeader().setVisible(False)
         self.corr_table.setSortingEnabled(True)
-        self.corr_table.cellDoubleClicked.connect(self.show_corr_chart)
+        # self.corr_table.cellDoubleClicked.connect(self.show_corr_chart)
 
+        self.process_bar = QtWidgets.QProgressBar()
 
         self.vb = QHBoxLayout()
         inner_vb = QVBoxLayout()
 
         inner_vb.addWidget(self.target_chart_widget)
         btn_hbox = QHBoxLayout()
-        btn_hbox.addWidget(self.compare_btn, 5)
-        btn_hbox.addWidget(self.forward_num, 2)
+        btn_hbox.addWidget(self.compare_btn, 3)
+        btn_hbox.addWidget(self.interval_combo, 1)
+        # btn_hbox.addWidget(self.forward_num, 2)
+        btn_hbox.addWidget(self.process_bar, 5)
+        btn_hbox.addWidget(self.save_btn, 1)
         inner_vb.addLayout(btn_hbox)
         inner_vb.addWidget(self.source_chart_widget)
 
@@ -712,18 +729,34 @@ class CorrelationMonitor(QWidget):
         self.init_signal()
 
     def init_signal(self):
+        def change_interval(index):
+            val = self.interval_combo.itemData(index)
+            self.interval = val
+            self.show_corr_chart(self._selected_row, 0)
+
+        self.interval_combo.currentIndexChanged.connect(change_interval)
+        self.compare_btn.clicked.connect(self.calc_corr)
+        self.target_chart_widget.indicator_combo.currentTextChanged.connect(self.source_chart_widget.change_indicator)
+        self.corr_table.cellDoubleClicked.connect(self.show_corr_chart)
         self.source_chart_widget.signal_new_bar_request.connect(self.update_bars_backward)
+        self.signal_process.connect(self.process_bar.setValue)
+        self.signal_new_corr.connect(self.insert_corr)
+        self.save_btn.clicked.connect(self.save_corr_data)
 
     def update_bars_backward(self, n):
         source_data = self.raw_data['HSI']
-        start = self.source_chart_widget._manager.get_bar(self.source_chart_widget.last_ix).datetime
+        last_bar = self.bar_generator.last_bar
+        if last_bar is None:
+            return
+        start = last_bar.datetime
         end = source_data.datetime.shift(-n)[start]
         data = source_data[start:end]
 
         for _, d in data.iterrows():
             b = BarData('KRData', d.code, Exchange.HKFE, d.datetime, None,
                         d.volume, 0, d.open, d.high, d.low, d.close)
-            self.source_chart_widget.update_bar(b)
+            self.bar_generator.update_bar(b)
+
 
     def calc_corr(self):
         if not self.data_fetcher.isFinished():
@@ -733,57 +766,189 @@ class CorrelationMonitor(QWidget):
         target_data = self.target_chart_widget.datas
         source_data = self.raw_data['HSI']
 
-        traget_values = target_data.close.values
+        apply_func_dict = {'datetime': 'last',
+                           'code': 'first',
+                           'open': 'first',
+                           'high': 'max',
+                           'low': 'min',
+                           'close': 'last',
+                           'volume': 'sum',
+                           'trade_date': 'first'
+                           }
 
+        ktype = {'1min': '1T', '5min': '5T', '15min': '15T',
+                 '30min': '30T', '60min': '60T', '1day': '1D'}.get(self.target_chart_widget.period)
+        if ktype:
+            self.data = source_data.resample(ktype).apply(apply_func_dict)
+            self.data.dropna(thresh=2, inplace=True)
+            self.data.datetime = self.data.index
+        else:
+            self.data = source_data
+
+        target_values = target_data.close.values
+        self.process_bar.setValue(0)
         @numba.jit
         def corr(nd):
-            return st.pearsonr(nd, traget_values)[0]
+            return st.pearsonr(nd, target_values)
 
         self.period = len(target_data)
-        ret = source_data.close.rolling(self.period).apply(corr)
+        # ret = source_data.close.rolling(self.period).apply(corr)
 
         table = self.corr_table
         table.clearContents()
+        table.setColumnCount(3)
+        # table.setRowCount(len(ret))
+        table.setHorizontalHeaderLabels(['datetime', 'corr', 'p'])
+        count = len(self.data)
 
-        table.setColumnCount(2)
-        table.setRowCount(len(ret))
-        table.setHorizontalHeaderLabels(['datetime', 'corr'])
+        corr_data = []
+        for i in range(self.period, count, 10):
+            data = (self.data.datetime[i], *corr(self.data.close.values[i - self.period:i]))
+            process_value = (i + 10) * 100 // count
+            self.signal_process.emit(process_value)
+            self.signal_new_corr.emit(*data)
+            corr_data.append(data)
+        else:
+            self.corr_data = pd.DataFrame(corr_data, columns=['datetime', 'corr', 'p'])
 
-        for i, (d, v) in enumerate(ret.iloc[::10].items()):
-            dt_cell = QTableWidgetItem()
-            dt_cell.setFlags(QtCore.Qt.ItemIsEnabled)
-            dt_cell.setData(Qt.DisplayRole, str(d))
-            dt_cell.setTextAlignment(QtCore.Qt.AlignCenter)
+    def insert_corr(self, d, corr, p):
+        table = self.corr_table
+        r = table.rowCount()
+        table.insertRow(r)
+        dt_cell = QTableWidgetItem()
+        dt_cell.setFlags(QtCore.Qt.ItemIsEnabled)
+        dt_cell.setData(Qt.DisplayRole, str(d))
+        dt_cell.setTextAlignment(QtCore.Qt.AlignCenter)
 
-            corr_cell = QTableWidgetItem()
-            corr_cell.setFlags(QtCore.Qt.ItemIsEnabled)
-            corr_cell.setData(Qt.DisplayRole, 0 if np.isnan(v) else v)
-            corr_cell.setTextAlignment(QtCore.Qt.AlignCenter)
+        corr_cell = QTableWidgetItem()
+        corr_cell.setFlags(QtCore.Qt.ItemIsEnabled)
+        corr_cell.setData(Qt.DisplayRole, 0 if np.isnan(corr) else corr)
+        corr_cell.setTextAlignment(QtCore.Qt.AlignCenter)
 
-            table.setItem(i, 0, dt_cell)
-            table.setItem(i, 1, corr_cell)
+        p_cell = QTableWidgetItem()
+        p_cell.setFlags(QtCore.Qt.ItemIsEnabled)
+        p_cell.setData(Qt.DisplayRole, p)
+        p_cell.setTextAlignment(QtCore.Qt.AlignCenter)
 
-        table.sortByColumn(1, Qt.DescendingOrder)
+
+        table.setItem(r, 0, dt_cell)
+        table.setItem(r, 1, corr_cell)
+        table.setItem(r, 2, p_cell)
 
     def show_corr_chart(self, r, c):
+        self._selected_row = r
         _end = self.corr_table.item(r, 0).text()
 
         source_data = self.raw_data['HSI']
-
-        forward = int(self.forward_num.text())
-        start = source_data.datetime.shift(self.period)[_end]
-        end = source_data.datetime.shift(-forward)[_end]
-
+        forward = 1
+        start = self.data.shift(self.period).asof(_end).datetime
+        end = self.data.shift(-forward).asof(_end).datetime
+        print(self.data)
+        print(start, end)
         data = source_data.loc[start:end]
-        barList = []
+        self.source_chart_widget.clear_all()
+        # barList = []
+        if self.interval >= 60:
+            self.bar_generator = BarGenerator(None, 1, self.source_chart_widget.update_bar, Interval.HOUR)
+        else:
+            self.bar_generator = BarGenerator(None, self.interval, self.source_chart_widget.update_bar, Interval.MINUTE)
+
         for _, d in data.iterrows():
             b = BarData('KRData', d.code, Exchange.HKFE, d.datetime, None,
                         d.volume, 0, d.open, d.high, d.low, d.close)
-            barList.append(b)
+            self.bar_generator.update_bar(b)
+            if d.datetime == parser.parse(_end):
+                last_bar = self.source_chart_widget._manager.get_bar(self.source_chart_widget.last_ix)
+                self.source_chart_widget.add_splitLine(last_bar.datetime)
+            # barList.append(b)
+        # self.source_chart_widget.update_all(barList, [], [])
+        # self.source_chart_widget.add_splitLine(barList[-forward].datetime, offset=0.5)
 
-        self.source_chart_widget.clear_all()
-        self.source_chart_widget.update_all(barList, [], [])
-        self.source_chart_widget.add_splitLine(barList[-forward].datetime)
+    def save_corr_data(self):
+        target_data = self.target_chart_widget.datas
+        target_start = target_data.iloc[0].datetime
+        target_end = target_data.iloc[-1].datetime
+
+        s = {}
+        s['start'] = target_start
+        s['end'] = target_end
+        s['symbol'] = self.target_chart_widget.symbol_line.text()
+        s['period'] = self.target_chart_widget.period
+        s['source'] = self.target_chart_widget.data_source
+        s['data'] = self.corr_data
+
+        # data.to_excel(f'{target_start}-{target_end}.xls', sheet_name=self.target_chart_widget.period)
+        import pickle
+        with open(f'{target_start.strftime("%Y%m%dT%H%M%S")}_{target_end.strftime("%Y%m%dT%H%M%S")}.pkl', 'wb') as f:
+            pickle.dump(s, f)
+
+    def load_corr_data(self, file_name):
+        if not self.data_fetcher.isFinished():
+            QMessageBox.critical(self, 'DataFetcher', '数据未加载完毕！', QMessageBox.Ok)
+            return
+
+        import pickle
+        with open(file_name, 'rb') as f:
+            s = pickle.load(f)
+
+        self.target_chart_widget.symbol_line.setText(s['symbol'])
+        self.target_chart_widget.datetime_from.setDateTime(s['start'])
+        self.target_chart_widget.datetime_to.setDateTime(s['end'])
+        self.target_chart_widget.interval_combo.setCurrentText(s['period'])
+        if s['source'] == 'HK':
+            self.target_chart_widget.source_HK_btn.setChecked(True)
+        elif s['source'] == 'IB':
+            self.target_chart_widget.source_IB_btn.setChecked(True)
+
+        self.corr_table.clearContents()
+        self.corr_table.setColumnCount(3)
+        # table.setRowCount(len(ret))
+        self.corr_table.setHorizontalHeaderLabels(['datetime', 'corr', 'p'])
+
+        for _, d in s['data'].iterrows():
+            self.insert_corr(d['datetime'], d['corr'], d['p'])
+
+        source_data = self.raw_data['HSI']
+
+        apply_func_dict = {'datetime': 'last',
+                           'code': 'first',
+                           'open': 'first',
+                           'high': 'max',
+                           'low': 'min',
+                           'close': 'last',
+                           'volume': 'sum',
+                           'trade_date': 'first'
+                           }
+
+        ktype = {'1min': '1T', '5min': '5T', '15min': '15T',
+                 '30min': '30T', '60min': '60T', '1day': '1D'}.get(self.target_chart_widget.period)
+        if ktype:
+            self.data = source_data.resample(ktype).apply(apply_func_dict)
+            self.data.dropna(thresh=2, inplace=True)
+            self.data.datetime = self.data.index
+        else:
+            self.data = source_data
+
+        self.target_chart_widget.query_btn.click()
+        self.period = len(self.target_chart_widget.datas)
 
     def show_data_fetch_finished(self):
         QMessageBox.information(self, 'DataFetcher', '数据加载完毕！', QMessageBox.Ok)
+
+    def closeEvent(self, a0: QCloseEvent) -> None:
+        self.target_chart_widget.closeEvent(a0)
+        self.source_chart_widget.closeEvent(a0)
+        super().closeEvent(a0)
+
+    def dragEnterEvent(self, a0: QDragEnterEvent) -> None:
+        super().dragEnterEvent(a0)
+        if a0.mimeData().hasFormat('text/plain'):
+            a0.accept()
+        else:
+            a0.ignore()
+
+    def dropEvent(self, a0: QDropEvent) -> None:
+        super().dropEvent(a0)
+
+        file_name = a0.mimeData().text().lstrip('file:/')
+        self.load_corr_data(file_name)
