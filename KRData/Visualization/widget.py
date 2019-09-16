@@ -865,6 +865,9 @@ class CorrelationMonitor(QWidget):
         # self.source_chart_widget.add_splitLine(barList[-forward].datetime, offset=0.5)
 
     def save_corr_data(self):
+        if not hasattr(self, 'self.corr_data'):
+            return
+        
         target_data = self.target_chart_widget.datas
         target_start = target_data.iloc[0].datetime
         target_end = target_data.iloc[-1].datetime
