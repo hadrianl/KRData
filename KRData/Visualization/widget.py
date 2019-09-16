@@ -843,8 +843,6 @@ class CorrelationMonitor(QWidget):
         forward = 1
         start = self.data.shift(self.period).asof(_end).datetime
         end = self.data.shift(-forward).asof(_end).datetime
-        print(self.data)
-        print(start, end)
         data = source_data.loc[start:end]
         self.source_chart_widget.clear_all()
         # barList = []
@@ -867,7 +865,7 @@ class CorrelationMonitor(QWidget):
     def save_corr_data(self):
         if not hasattr(self, 'self.corr_data'):
             return
-        
+
         target_data = self.target_chart_widget.datas
         target_start = target_data.iloc[0].datetime
         target_end = target_data.iloc[-1].datetime
