@@ -224,7 +224,9 @@ class IBMarket(metaclass=Singleton):
                 except Exception as e:
                     raise e
 
-        df = util.df(barlist).rename(columns = {'date': 'datetime'}).set_index('datetime', drop=False)[start:]
+        df = util.df(barlist)
+        if df:
+            df = df.rename(columns = {'date': 'datetime'}).set_index('datetime', drop=False)[start:]
 
         return df
 
