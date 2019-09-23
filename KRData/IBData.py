@@ -227,6 +227,8 @@ class IBMarket(metaclass=Singleton):
         df = util.df(barlist)
         if df:
             df = df.rename(columns = {'date': 'datetime'}).set_index('datetime', drop=False)[start:]
+        else:
+            df = pd.DataFrame(columns=['datetime', 'open', 'high', 'low', 'close', 'volume', 'barCount', 'average']).set_index('datetime', drop=False)
 
         return df
 
