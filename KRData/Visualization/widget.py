@@ -614,7 +614,7 @@ class TradesMonitor(QWidget):
                         if len(splited) == 2:
                             d.setdefault(splited[1], {})[splited[0]] = t[i]
                         elif len(splited) == 1:
-                            d[splited[0]] == t[i]
+                            d[splited[0]] = t[i]
                     else:
                         self.trades.append(d)
 
