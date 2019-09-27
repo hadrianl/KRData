@@ -557,7 +557,7 @@ class TradesMonitor(QWidget):
         fields = []
         if not self.trades:
             return
-
+        print(self.trades)
         for k1 in self.trades[0]:
             if isinstance(self.trades[0][k1], dict):
                 for k2 in self.trades[0][k1]:
@@ -579,7 +579,7 @@ class TradesMonitor(QWidget):
                 v = tradeData.get(oc, {}).get(f)
                 cell = QTableWidgetItem()
                 cell.setFlags(QtCore.Qt.ItemIsEnabled)
-                cell.setData(Qt.DisplayRole, v)
+                cell.setData(Qt.DisplayRole, v if isinstance(v, (int, float)) else str(v))
 
                 cell.setTextAlignment(QtCore.Qt.AlignCenter)
                 table.setItem(r, c + 1, cell)
