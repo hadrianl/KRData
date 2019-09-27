@@ -559,8 +559,9 @@ class TradesMonitor(QWidget):
             return
 
         for k1 in self.trades[0]:
-            for k2 in self.trades[0][k1]:
-                fields.append(f'{k2}_{k1}')
+            if isinstance(self.trades[0][k1], dict):
+                for k2 in self.trades[0][k1]:
+                    fields.append(f'{k2}_{k1}')
 
         # fields = ['datetime_open', 'price_open', 'size_open', 'direction_open', 'datetime_close', 'price_close', 'size_close', 'direction_close']
         table.setColumnCount(len(fields) + 2)
