@@ -17,9 +17,9 @@ import click
 @click.option('--password',  prompt=True, help='数据库密码')
 @click.option('--ibhost', default='127.0.0.1', help='IB Host')
 @click.option('--ibport', default=7496, help='IB Port')
-@click.option('--ibclientId', default=0, help='IB Client ID')
+@click.option('--ibclientid', default=0, help='IB Client ID')
 @click.option('--alive', default=False, type=bool, help='是否持续更新')
-def save_ib_trade(dbhost, dbport, user, password, ibhost, ibport, ibclientId, alive):
+def save_ib_trade(dbhost, dbport, user, password, ibhost, ibport, ibclientid, alive):
     ib = IB()
     client = pm.MongoClient(dbhost,dbport)
     auth_db = client.get_database('admin')
@@ -50,7 +50,7 @@ def save_ib_trade(dbhost, dbport, user, password, ibhost, ibport, ibclientId, al
 
 
     ib.execDetailsEvent += save_trade
-    ib.connect(ibhost, ibport, clientId=ibclientId, timeout=20)
+    ib.connect(ibhost, ibport, clientId=ibclientid, timeout=20)
     print('连接成功')
     fills = ib.fills()
     for f in fills:
