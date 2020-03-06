@@ -7,7 +7,7 @@
 from mongoengine import *
 import pandas as pd
 from .util import load_json_settings
-from typing import Union, List
+from typing import Union, List, Iterable
 import datetime as dt
 
 class CNFinance:
@@ -32,7 +32,13 @@ class CNFinance:
             if item.stop and isinstance(item.stop, (str, dt.datetime)):
                 date_range_params['report_date__lt'] = item.stop
 
-            query_set = self._FinanceReport.objects(code=item.step, **date_range_params)
+            if item.step:
+                if isinstance(item.step, str):
+                    date_range_params['code'] = item.step
+                elif isinstance(item.step, Iterable):
+                    date_range_params['code__in'] = item.step
+
+            query_set = self._FinanceReport.objects(**date_range_params)
 
             return query_set
         else:
