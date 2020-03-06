@@ -46,6 +46,54 @@ class CNFinance:
                           columns=['code', 'report_date', *financial_dict.values()])
 
 
+class HKFinance:
+    def __init__(self, _type='zcfzb'):
+        """
+
+        :param _type: ['lrb', 'zcfzb', 'xzjlb', 'zyzb']之一，默认zcfzb
+        """
+        _reports = {'lrb': HKFinanceLRB,
+                    'zcfzb': HKFinanceZCFZB,
+                    'xzjlb': HKFinanceXZJLB,
+                    'zyzb': HKFinanceZYZB}
+        config = load_json_settings('mongodb_settings.json')
+        if not config:
+            raise Exception('请先配置mongodb')
+
+        if _type not in _reports:
+            raise Exception(f'请提供正确的财报类型：{_reports.keys()}')
+
+        self._type = _type
+        self._FinanceReport = _reports[_type]
+        register_connection('FINANCE', db='FINANCE', host=config['host'], port=config['port'], username=config['user'], password=config['password'], authentication_source='admin')
+
+    def __getitem__(self, item: Union[str, slice]) -> QuerySet:
+        if isinstance(item, str):
+            query_set = self._FinanceReport.objects(code=item)
+        elif isinstance(item, slice):
+            date_range_params = {}
+
+            if item.start and isinstance(item.start, (str, dt.datetime)):
+                date_range_params['report_date__gte'] = item.start
+
+            if item.stop and isinstance(item.stop, (str, dt.datetime)):
+                date_range_params['report_date__lt'] = item.stop
+
+            query_set = self._FinanceReport.objects(code=item.step, **date_range_params)
+
+            return query_set
+        else:
+            raise Exception(f'item类型应为{Union[str, slice]}')
+
+        return query_set
+
+    def to_df(self, query_set: QuerySet) -> pd.DataFrame:
+        _columns_list = {'lrb': lrb_columns_list,
+                    'zcfzb': zcfzb_columns_list,
+                    'xzjlb': xzjlb_columns_list,
+                    'zyzb': zyzb_columns_list}[self._type]
+        return pd.DataFrame([[r[0], r[1], *r[2]] for r in query_set.values_list('code', 'report_date', 'data')],
+                          columns=['code', 'report_date', *_columns_list])
 
 class CNFinanceReport(Document):
     code = StringField(required=True, unique_with='report_date')
@@ -54,6 +102,33 @@ class CNFinanceReport(Document):
 
     meta = {'db_alias': 'FINANCE', 'collection': 'cn_finance_report'}
 
+class HKFinanceLRB(Document):
+    code = StringField(required=True, unique_with='report_date')
+    report_date = DateField(required=True)
+    data = ListField(FloatField())
+
+    meta = {'db_alias': 'FINANCE', 'collection': 'hk_finance_lrb'}
+
+class HKFinanceZCFZB(Document):
+    code = StringField(required=True, unique_with='report_date')
+    report_date = DateField(required=True)
+    data = ListField(FloatField())
+
+    meta = {'db_alias': 'FINANCE', 'collection': 'hk_finance_zcfzb'}
+
+class HKFinanceXZJLB(Document):
+    code = StringField(required=True, unique_with='report_date')
+    report_date = DateField(required=True)
+    data = ListField(FloatField())
+
+    meta = {'db_alias': 'FINANCE', 'collection': 'hk_finance_xzjlb'}
+
+class HKFinanceZYZB(Document):
+    code = StringField(required=True, unique_with='report_date')
+    report_date = DateField(required=True)
+    data = ListField(FloatField())
+
+    meta = {'db_alias': 'FINANCE', 'collection': 'hk_finance_zyzb'}
 
 financial_dict = {
 
@@ -409,3 +484,142 @@ financial_dict = {
     '311未知311':'unknown311',
     '312未知312':'unknown312'
 }
+
+lrb_columns_list = ['交易净收入|2', '保单持有人利益|2', '全面收益总额', '其他全面收益', '其他支出', '其他支出|2', '其他收入',
+       '其他收入|2', '净保费收入|2', '净利息收入|2', '净利润', '出售资产之溢利', '分出保费|2', '利息支出|3',
+       '利息收入|2', '利息收入|3', '员工薪酬', '员工薪酬|2', '基本每股收益|2', '已赚净保费|2', '应占合营公司溢利',
+       '应占联营公司溢利', '影响净利润的其他项目', '影响税前利润的其他项目', '总保费收入|2', '所得税',
+       '手续费及佣金净收入|2', '手续费及佣金支出|2', '手续费及佣金支出|3', '手续费及佣金收入|2', '手续费及佣金收入|3',
+       '投资性证券净收益|2', '投资收益|2', '折旧和摊销', '折旧和摊销|2',
+       '指定为以公允价值计量且其变动计入当期损益的金融工具净收益|2', '提取未到期责任准备金|2', '本公司拥有人应占全面收益总额|2',
+       '本公司拥有人应占净利润', '本公司拥有人应占净利润|2', '每股收益|1', '每股股息|2', '毛利(计算)', '研发费用',
+       '稀释每股收益|2', '税前利润', '经营溢利(计算)', '股息', '营业支出(计算)', '营业收入(计算)', '行政开支',
+       '行政开支|2', '财务成本', '资产减值损失', '资产减值损失|2', '重估盈余', '销售及分销成本', '销售及分销成本|2',
+       '销售成本', '非控股权益应占全面收益总额|2', '非控股权益应占净利润', '非控股权益应占净利润|2']
+
+xzjlb_columns_list = ['经营活动产生的现金流量|1', '除税前利润', '资产减值准备', '折旧与摊销', '出售物业、厂房及设备的亏损(收益)',
+       '投资亏损(收益)', '应占联营及合营公司亏损(收益)', '重估盈余', '利息支出', '利息收入', '存货的减少(增加)',
+       '应收帐款减少(增加)', '预付款项、按金及其他应收款项减少(增加)', '应付帐款增加(减少)',
+       '预收账款、按金及其他应付款增加(减少)', '经营资金变动其他项目', '经营活动产生的现金', '已收利息(经营)',
+       '已付利息(经营)', '已付税项', '经营活动产生的现金流量净额其他项目', '经营活动产生的现金流量净额',
+       '投资活动产生的现金流量|1', '购买物业、厂房及设备支付的现金', '出售物业、厂房及设备收到的现金',
+       '购买无形资产及其他资产支付的现金', '出售无形资产及其他资产收到的现金', '购买子公司、联营企业及合营企业支付的现金',
+       '出售子公司、联营企业及合营企业收到的现金', '购买证券投资所支付的现金', '出售证券投资所收到的现金', '已收利息及股息(投资)',
+       '投资活动产生的现金流量净额其他项目', '投资活动产生的现金流量净额', '融资活动产生的现金流量|1', '新增借款', '偿还借款',
+       '吸收投资所得', '发行股份', '回购股份', '发行债券', '赎回/偿还债券', '发行费用', '已付股息(融资)',
+       '已付利息(融资)', '融资活动产生的现金流量净额其他项目', '融资活动产生的现金流量净额', '现金及现金等价物净增加额其他项目|1',
+       '现金及现金等价物净增加额|1', '现金及现金等价物的期初余额|1', '汇率变动对现金及现金等价物的影响|1',
+       '现金及现金等价物的期末余额其他项目|1', '现金及现金等价物的期末余额|1']
+
+zcfzb_columns_list = ['买入返售金融资产',
+ '于联营和合营公司投资',
+ '于附属公司投资',
+ '以公允价值计量且其变动计入当期损益的金融负债',
+ '以公允价值计量且其变动计入当期损益的金融负债(流动)',
+ '以公允价值计量且其变动计入当期损益的金融负债(非流动)',
+ '以公允价值计量且其变动计入当期损益的金融资产',
+ '以公允价值计量且其变动计入当期损益的金融资产(流动)',
+ '以公允价值计量且其变动计入当期损益的金融资产(非流动)',
+ '保险负债总额',
+ '借款',
+ '储备',
+ '其中:商誉',
+ '其中:股本溢价',
+ '其他借款',
+ '其他储备|3',
+ '其他应付款项及应计费用',
+ '再保险资产',
+ '卖出回购金融资产',
+ '受限制存款及现金',
+ '可供出售金融资产',
+ '可供出售金融资产(流动)',
+ '可供出售金融资产(非流动)',
+ '可收回本期税项',
+ '同业及其他金融机构存放款项',
+ '后偿负债',
+ '商誉及无形资产',
+ '土地使用权',
+ '存出资本保证金',
+ '存货',
+ '定期存款',
+ '客户信托银行结余',
+ '客户存款',
+ '已发行债券',
+ '已发行存款证',
+ '应付分保账款',
+ '应付税项',
+ '应付股息及利息',
+ '应付账款及其他应付款',
+ '应付账款及票据',
+ '应收保费',
+ '应收关联公司款项',
+ '应收款项类投资',
+ '应收账款及票据',
+ '归属于母公司股东权益',
+ '归属于母公司股东权益其他项目',
+ '总资产减流动负债|1',
+ '投资合同负债',
+ '投资物业',
+ '拆入资金',
+ '拆出资金',
+ '拟派股息',
+ '持有至到期投资',
+ '持有至到期投资(流动)',
+ '持有至到期投资(非流动)',
+ '无形资产|3',
+ '流动负债|1',
+ '流动负债其他项目',
+ '流动负债合计',
+ '流动资产|1',
+ '流动资产其他项目',
+ '流动资产净值|1',
+ '流动资产合计',
+ '物业、厂房及设备',
+ '现金、存放同业和其他金融机构款项',
+ '现金及现金等价物',
+ '留存收益|3',
+ '短期借款',
+ '股东权益|1',
+ '股东权益其他项目',
+ '股东权益合计',
+ '股本',
+ '融资租赁负债(流动)',
+ '融资租赁负债(非流动)',
+ '衍生金融负债',
+ '衍生金融负债(流动)',
+ '衍生金融负债(非流动)',
+ '衍生金融资产',
+ '衍生金融资产(流动)',
+ '衍生金融资产(非流动)',
+ '负债|1',
+ '负债其他项目',
+ '负债及股东权益合计|1',
+ '负债总额',
+ '负债总额|1',
+ '贷款及垫款',
+ '资产|1',
+ '资产其他项目',
+ '资产总额',
+ '资产总额|1',
+ '递延收入(流动)',
+ '递延收入(非流动)',
+ '递延税项负债',
+ '递延税项资产',
+ '长期借款',
+ '非控股权益',
+ '非流动负债|1',
+ '非流动负债其他项目',
+ '非流动负债合计',
+ '非流动资产|1',
+ '非流动资产其他项目',
+ '非流动资产合计',
+ '预付款项、按金及其他应收款项',
+ '预付款项、按金及其他应收款项(流动)',
+ '预付款项、按金及其他应收款项(非流动)']
+
+zyzb_columns_list = ['基本每股收益(元)', '稀释每股收益(元)', 'TTM每股收益(元)', '每股净资产(元)', '每股经营现金流(元)',
+       '每股营业收入(元)', '营业总收入(元)', '毛利润', '归母净利润', '营业总收入同比增长(%)', '毛利润同比增长(%)',
+       '归母净利润同比增长(%)', '营业总收入滚动环比增长(%)', '毛利润滚动环比增长(%)', '归母净利润滚动环比增长(%)',
+       '平均净资产收益率(%)', '年化净资产收益率(%)', '总资产净利率(%)', '毛利率(%)', '净利率(%)',
+       '年化投资回报率(%)', '所得税/利润总额(%)', '经营现金流/营业收入(%)', '资产负债率(%)', '流动负债/总负债(%)',
+       '流动比率']
