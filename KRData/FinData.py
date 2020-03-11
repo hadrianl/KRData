@@ -91,7 +91,7 @@ class HKFinance:
                 elif isinstance(item.step, Iterable):
                     date_range_params['code__in'] = item.step
 
-            query_set = self._FinanceReport.objects(code=item.step, **date_range_params)
+            query_set = self._FinanceReport.objects(**date_range_params)
 
             return query_set
         else:
