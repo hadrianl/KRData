@@ -19,6 +19,10 @@ from ..IBData import IBMarket, IBTrade
 from ..util import _concat_executions, load_json_settings, save_json_settings
 from typing import Iterable
 from dateutil import parser
+from PyQt5 import QtWidgets
+from .baseObject import *
+from .baseQtItems import *
+
 
 EVENT_BAR_UPDATE = 'eBarUpdate'
 DEFAULT_MA_SETTINGS = {'5': 'r', '10': 'b', '30': 'g', '60': 'm'}
@@ -35,11 +39,7 @@ ACCOUNT_SETTINGS = SETTINGS.get('ACCOUNT', DEFAULT_ACCOUNT_SETTINGS)
 MAX_LEN = 3000
 
 
-from PyQt5 import QtWidgets
-from vnpy.app.realtime_monitor.ui.baseQtItems import MarketDataChartWidget
-from vnpy.trader.object import BarData, TradeData
-from vnpy.trader.constant import Interval, Exchange, Direction, Offset
-from vnpy.trader.utility import BarGenerator
+
 
 class KLineWidget(QtWidgets.QWidget):
 
