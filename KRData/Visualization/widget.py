@@ -14,16 +14,10 @@ from PyQt5.QtGui import *
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 from PyQt5 import QtCore
-import pyqtgraph as pg
-import pyqtgraph.exporters
-from functools import partial
-from collections import deque
-# from .baseQtItems import KeyWraper, CandlestickItem, MyStringAxis, Crosshair, CustomViewBox
 from ..HKData import HKMarket
 from ..IBData import IBMarket, IBTrade
 from ..util import _concat_executions, load_json_settings, save_json_settings
 from typing import Iterable
-import talib
 from dateutil import parser
 
 EVENT_BAR_UPDATE = 'eBarUpdate'
@@ -632,7 +626,9 @@ class TradesMonitor(QWidget):
             start = self._selected_executions[0]['datetime']
             end = self._selected_executions[-1]['datetime']
             start = start if isinstance(start, dt.datetime) else parser.parse(start)
-            end = start if isinstance(end, dt.datetime) else parser.parse(end)
+            end = end if isinstance(end, dt.datetime) else parser.parse(end)
+            start = start - dt.timedelta(days=1)
+            end = end + dt.timedelta(days=1)
 
             symbol = self.trades[r].get('extra', {}).get('symbol', None)
             if symbol:
