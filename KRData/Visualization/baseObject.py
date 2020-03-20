@@ -8,7 +8,7 @@ from typing import Callable, Dict, List, Tuple
 from datetime import datetime
 from dataclasses import dataclass
 from enum import Enum
-from vnpy.trader.ui import QtGui
+from PyQt5 import QtGui
 import talib
 import numpy as np
 from ..util import load_json_settings
