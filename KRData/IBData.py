@@ -338,6 +338,12 @@ class IBTrade(metaclass=Singleton):
     def connectIB(self, host='127.0.0.1', port=7497, clientId=0):
         self.ib.connect(host, port, clientId)
 
+    def resetAccount(self, account=None):
+        self.account = account
+        if self.account:
+            self._objects = self.IBFill.objects(execution__acctNumber=self.account)
+        else:
+            self._objects = self.IBFill.objects
 
     def __del__(self):
         self.ib.disconnect()
