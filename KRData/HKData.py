@@ -309,7 +309,7 @@ class HKFuture(BaseData):
             td = trade_date
             d = [ret for ret in self._col.find(
                 {'code': code, 'datetime': {'$gte': td.replace(hour=9, minute=14, second=0),
-                                            '$lt': td.replace(hour=17, minute=0, second=0)}}, _fields,
+                                            '$lt': td.replace(hour=16, minute=59, second=0)}}, _fields,
                 sort=[('datetime', pmg.DESCENDING)])]
 
             _bar_before_d = self._col.find_one(
@@ -318,11 +318,11 @@ class HKFuture(BaseData):
                 sort=[('datetime', pmg.DESCENDING)])
 
             if _bar_before_d is not None:
-                if dt.time(17, 14) < _bar_before_d['datetime'].time() <= dt.time(23, 59):
+                if dt.time(16, 59) < _bar_before_d['datetime'].time() <= dt.time(23, 59):
                     _d_aht = self._col.find({'code': code, 'type': '1min',
                                              'datetime': {'$gte': dt.datetime.fromtimestamp(
-                                                 _bar_before_d['date_stamp']) + dt.timedelta(hours=17,
-                                                                                             minutes=14),
+                                                 _bar_before_d['date_stamp']) + dt.timedelta(hours=16,
+                                                                                             minutes=59),
                                                           '$lte': dt.datetime.fromtimestamp(
                                                               _bar_before_d['date_stamp']) + dt.timedelta(
                                                               hours=23, minutes=59)}},
@@ -333,8 +333,8 @@ class HKFuture(BaseData):
                 elif dt.time(0, 0) < _bar_before_d['datetime'].time() <= dt.time(3, 0):
                     _d_aht = self._col.find({'code': code, 'type': '1min',
                                              'datetime': {'$gte': dt.datetime.fromtimestamp(
-                                                 _bar_before_d['date_stamp']) - dt.timedelta(hours=6,
-                                                                                             minutes=46),
+                                                 _bar_before_d['date_stamp']) - dt.timedelta(hours=7,
+                                                                                             minutes=1),
                                                           '$lte': dt.datetime.fromtimestamp(
                                                               _bar_before_d['date_stamp']) + dt.timedelta(
                                                               hours=3, minutes=0)}},

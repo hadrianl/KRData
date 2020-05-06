@@ -2145,11 +2145,13 @@ class MarketDataChartWidget(ChartWidget):
     def init_chart_ui(self):
         self.add_plot("candle", hide_x_axis=True, minimum_height=200)
         self.add_plot("indicator", hide_x_axis=True, maximum_height=120)
+        # self.add_plot("indicator2", hide_x_axis=True, maximum_height=120)
         self.add_plot("pnl", hide_x_axis=True, maximum_height=80)
         self.add_plot("volume", maximum_height=100)
 
         self.get_plot("candle").showGrid(True, True)
         self.get_plot("indicator").showGrid(True, True)
+        # self.get_plot("indicator2").showGrid(True, True)
         self.get_plot("pnl").showGrid(True, True)
         self.get_plot("volume").showGrid(True, True)
 
