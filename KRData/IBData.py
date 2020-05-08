@@ -464,6 +464,7 @@ class IBTrade(metaclass=Singleton):
                 r = re.match(r'([A-Z]+)(\d{2,})', item.step)
                 if r:
                     symbol, num = r.groups()
+                    filter_['contract__symbol'] = symbol
                     filter_['contract__lastTradeDateOrContractMonth__contains'] = f'20{num}'
                 else:
                     filter_['contract__localSymbol'] = item.step
