@@ -46,9 +46,18 @@ class CNFinance:
 
         return query_set
 
+    def read_raw_file_info_db(self, filepath):
+        from pytdx.reader import HistoryFinancialReader
+        reader = HistoryFinancialReader()
+        df = reader.get_df(filepath).set_index(['report_date'], append=True)
+
+        for (code, report_date), data in df.iterrows():
+            CNFinanceReport(code=code, report_date=str(report_date), data=data.to_list()).save()
+
     @staticmethod
     def to_df(query_set: QuerySet) -> pd.DataFrame:
-        return pd.DataFrame([[r[0], r[1], *r[2]] for r in query_set.values_list('code', 'report_date', 'data')],
+        length = len(financial_dict)
+        return pd.DataFrame([[r[0], r[1], *r[2][:length]] for r in query_set.values_list('code', 'report_date', 'data')],
                           columns=['code', 'report_date', *financial_dict.values()])
 
 
