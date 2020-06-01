@@ -223,6 +223,7 @@ class KLineWidget(QtWidgets.QWidget):
                 datas = pd.concat([data1, data2, data3])
 
             elif self.data_source == 'IB':
+                symbol = int(symbol) if symbol.isdigit() else symbol
                 contract = self._querier.verifyContract(symbol)
                 barType = {'1min': '1 min', '5min': '5 mins', '15min': '15 mins', '30min': '30 mins', '60min': '60 mins', '1day': '1 day'}.get(self.period,'1 min')
                 datas = self._querier.get_bars_from_ib(contract, barType=barType, start=start, end=end)
