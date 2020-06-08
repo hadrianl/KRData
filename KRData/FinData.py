@@ -69,7 +69,7 @@ class HKFinance:
         """
         _reports = {'lrb': HKFinanceLRB,
                     'zcfzb': HKFinanceZCFZB,
-                    'xzjlb': HKFinanceXZJLB,
+                    'xjllb': HKFinanceXJLLB,
                     'zyzb': HKFinanceZYZB}
         config = load_json_settings('mongodb_settings.json')
         if not config:
@@ -111,7 +111,7 @@ class HKFinance:
     def to_df(self, query_set: QuerySet) -> pd.DataFrame:
         _columns_list = {'lrb': lrb_columns_list,
                     'zcfzb': zcfzb_columns_list,
-                    'xzjlb': xzjlb_columns_list,
+                    'xjllb': xjllb_columns_list,
                     'zyzb': zyzb_columns_list}[self._type]
         return pd.DataFrame([[r[0], r[1], *r[2]] for r in query_set.values_list('code', 'report_date', 'data')],
                           columns=['code', 'report_date', *_columns_list])
@@ -137,12 +137,19 @@ class HKFinanceZCFZB(Document):
 
     meta = {'db_alias': 'FINANCE', 'collection': 'hk_finance_zcfzb'}
 
-class HKFinanceXZJLB(Document):
+# class HKFinanceXZJLB(Document):
+#     code = StringField(required=True, unique_with='report_date')
+#     report_date = DateField(required=True)
+#     data = ListField(FloatField())
+#
+#     meta = {'db_alias': 'FINANCE', 'collection': 'hk_finance_xzjlb'}
+
+class HKFinanceXJLLB(Document):
     code = StringField(required=True, unique_with='report_date')
     report_date = DateField(required=True)
     data = ListField(FloatField())
 
-    meta = {'db_alias': 'FINANCE', 'collection': 'hk_finance_xzjlb'}
+    meta = {'db_alias': 'FINANCE', 'collection': 'hk_finance_xjllb'}
 
 class HKFinanceZYZB(Document):
     code = StringField(required=True, unique_with='report_date')
@@ -518,7 +525,7 @@ lrb_columns_list = ['交易净收入|2', '保单持有人利益|2', '全面收�
        '行政开支|2', '财务成本', '资产减值损失', '资产减值损失|2', '重估盈余', '销售及分销成本', '销售及分销成本|2',
        '销售成本', '非控股权益应占全面收益总额|2', '非控股权益应占净利润', '非控股权益应占净利润|2']
 
-xzjlb_columns_list = ['经营活动产生的现金流量|1', '除税前利润', '资产减值准备', '折旧与摊销', '出售物业、厂房及设备的亏损(收益)',
+xjllb_columns_list = ['经营活动产生的现金流量|1', '除税前利润', '资产减值准备', '折旧与摊销', '出售物业、厂房及设备的亏损(收益)',
        '投资亏损(收益)', '应占联营及合营公司亏损(收益)', '重估盈余', '利息支出', '利息收入', '存货的减少(增加)',
        '应收帐款减少(增加)', '预付款项、按金及其他应收款项减少(增加)', '应付帐款增加(减少)',
        '预收账款、按金及其他应付款增加(减少)', '经营资金变动其他项目', '经营活动产生的现金', '已收利息(经营)',
