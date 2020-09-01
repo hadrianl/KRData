@@ -10,10 +10,10 @@ from dateutil import parser
 import datetime as dt
 from . import BaseData
 from .util import _check_ktype, load_json_settings, _concat_executions
-from mongoengine import Document, DateTimeField, FloatField, IntField, StringField, register_connection, QuerySet
+from mongoengine import Document, DateTimeField, FloatField, IntField, StringField, connect, QuerySet, ListField
 import pymongo as pmg
 from collections import OrderedDict
-from typing import Dict, List, Union
+from typing import Dict, List, Union, Tuple
 from functools import lru_cache
 import re
 
@@ -374,7 +374,7 @@ class HKMarket:
         self._MarketData = type(f'HKMarketData_{period}',
                                 (HKMarketDataBaseDocument,),
                                 {'meta': {'collection': f'future_{period}_'}})
-        register_connection('HKFuture', db='HKFuture', host=config['host'], port=config['port'], username=config['user'], password=config['password'], authentication_source='admin')
+        connect(alias='HKFuture', db='HKFuture', host=config['host'], port=config['port'], username=config['user'], password=config['password'], authentication_source='admin')
 
     def __getitem__(self, item: Union[str, slice]) -> QuerySet:
         if isinstance(item, str):
@@ -405,9 +405,22 @@ class HKMarket:
         return query_set
 
     @staticmethod
-    def to_df(query_set: QuerySet) -> pd.DataFrame:
-        return pd.DataFrame([r for r in query_set.values_list('datetime', 'open', 'high', 'low', 'close', 'volume', 'trade_date')],
-                          columns=['datetime', 'open', 'high', 'low', 'close', 'volume', 'trade_date']).set_index('datetime', drop=False)
+    def to_df(query_set: QuerySet, with_trait: List[Tuple]=None) -> pd.DataFrame:
+        ohlc = pd.DataFrame(query_set.values_list('datetime', 'code', 'open', 'high', 'low', 'close', 'volume', 'trade_date'),
+                            columns=['datetime', 'code', 'open', 'high', 'low', 'close', 'volume', 'trade_date']).set_index('datetime', drop=False)
+
+        traits = []
+        if with_trait and not ohlc.empty:
+            code = ohlc.code[0]
+            start = ohlc.datetime[0]
+            end = ohlc.datetime[-1]
+            for T, p in with_trait:
+                ts = T.to_df(T.objects(code=code, datetime__gte=start, datetime__lte=end, param=p))
+                traits.append(ts)
+
+        ret = pd.concat([ohlc, *traits], axis=1)
+
+        return ret
 
 class HKMarketDataBaseDocument(Document):
     code = StringField(required=True)
