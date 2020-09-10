@@ -50,9 +50,12 @@ class MACD(TRAIT):
 
     @staticmethod
     def to_df(query_set: QuerySet) -> pd.DataFrame:
+        if query_set.count() == 0:
+            return pd.DataFrame()
+
         return pd.DataFrame(
             ((d, *vs) for d, vs in query_set.values_list('datetime', 'datas')),
-            columns=['datetime', 'macd', 'macdsignal', 'macdhist']).set_index('datetime', drop=False)
+            columns=['datetime', 'macd', 'macdsignal', 'macdhist']).set_index('datetime')
 
 
 class MA(TRAIT):
@@ -88,6 +91,9 @@ class MA(TRAIT):
 
     @staticmethod
     def to_df(query_set: QuerySet) -> pd.DataFrame:
+        if query_set.count() == 0:
+            return pd.DataFrame()
+
         return pd.DataFrame(
             ((d, vs) for d, vs in query_set.values_list('datetime', 'datas')),
-            columns=['datetime', f'ma{query_set[0].param}']).set_index('datetime', drop=False)
+            columns=['datetime', f'ma{query_set[0].param}']).set_index('datetime')

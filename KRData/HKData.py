@@ -17,7 +17,6 @@ from typing import Dict, List, Union, Tuple
 from functools import lru_cache
 import re
 
-
 class HKFuture(BaseData):
     def __init__(self, db='HKFuture'):
         config = load_json_settings('mongodb_settings.json')
@@ -368,7 +367,7 @@ class HKMarket:
         if not config:
             raise Exception('请先配置mongodb')
 
-        PERIOD = ['1min', '5min', '15min', '30min', '60min', '1day']
+        PERIOD = ['1min', '3min', '5min', '15min', '30min', '60min', '1day']
         assert period in PERIOD, f'period must be one of {PERIOD}'
 
         self._MarketData = type(f'HKMarketData_{period}',
@@ -432,7 +431,11 @@ class HKMarketDataBaseDocument(Document):
     volume = IntField()
     trade_date = DateTimeField()
 
-    meta = {'db_alias': 'HKFuture', 'abstract': True}
+    meta = {'db_alias': 'HKFuture', 'abstract': True,
+            'indexes': [
+                'code',
+                ('code', 'datetime')
+            ]}
 
 class HKContractInfo(Document):
     CODE = StringField(required=True)

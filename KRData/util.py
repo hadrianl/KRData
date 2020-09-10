@@ -39,7 +39,7 @@ def _check_ktype(ktype):
         _t = _ktype[1].lower()
         if _t in ['m', 'min']:
             _t = 'T'
-            if _n not in [1, 5, 15, 30, 60]:
+            if _n not in [1, 3, 5, 15, 30, 60]:
                 raise Exception(f'不支持{ktype}类型, 请输入正确的ktype!')
         elif _t in ['d', 'day']:
             _t = 'D'
