@@ -471,7 +471,7 @@ class ExecutionsMonitor(QWidget):
                 self.executions = pd.read_excel(fname[0])
 
             if 'tradeDate' not in self.executions.columns:
-                self.executions['tradeDate'] = self.executions.datetime.apply(lambda d: d.date())
+                self.executions['tradeDate'] = self.executions.datetime.apply(lambda d: str(d.date()))
             self.executions_groupby_date = self.executions.groupby(['tradeDate', 'symbol'])
             self.refresh_table()
 
