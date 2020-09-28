@@ -120,10 +120,11 @@ class CNMarket:
                 info['date'] = pd.to_datetime(info['date'])
                 info = info.set_index(['code', 'date'])
 
-                data_ = pd.concat([data, info.loc[data.index[0]:data.index[-1]]], axis=1)
+                data_ = pd.concat([data, info], axis=1)
 
                 def calc_fq(df):
                     df[cols].ffill(inplace=True)
+                    df.dropna(subset=cols, inplace=True)
                     df.fillna(0, inplace=True)
 
                     df['preclose'] = (df['close'].shift(1) * 10 - df['fenhong'] +
@@ -139,8 +140,8 @@ class CNMarket:
 
                     return df
 
-                data_ = data_.groupby(level='code').apply(calc_fq)
+                data_ = data_.groupby(level='code').apply(calc_fq).droplevel(0)
 
-                data = data_.drop(['is_trade', 'category', 'fenhong', 'peigu', 'peigujia', 'songzhuangu',  'preclose', 'adj'], axis=1)
+                data = data_[data_['is_trade'] == 1].drop(['is_trade', 'category', 'fenhong', 'peigu', 'peigujia', 'songzhuangu',  'preclose', 'adj'], axis=1)
 
         return data
