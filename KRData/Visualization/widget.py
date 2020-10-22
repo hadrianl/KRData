@@ -657,6 +657,7 @@ class CorrelationMonitor(QWidget):
     signal_new_corr = QtCore.pyqtSignal((dt.datetime, float, float))
     signal_new_dtw = QtCore.pyqtSignal((dt.datetime, float))
     signal_process = QtCore.pyqtSignal(int)
+    his_start = '20150101'
 
     class DataFetcher(QThread):
         def __init__(self, parent=None):
@@ -668,7 +669,7 @@ class CorrelationMonitor(QWidget):
         def run(self) -> None:
             parent = self.parent()
             if parent:
-                parent.raw_data['HSI'] = self.hf.get_main_contract_bars('HSI', start='20190101')
+                parent.raw_data['HSI'] = self.hf.get_main_contract_bars('HSI', start=parent.his_start)
 
     def __init__(self):
         super().__init__()
@@ -688,8 +689,10 @@ class CorrelationMonitor(QWidget):
         self.target_chart_widget = KLineWidget()
         # self.target_chart_widget.interval_combo.setEnabled(False)
         self.source_chart_widget = MarketDataChartWidget()
-        self.compare_corr_btn = QPushButton('计算corr')
-        self.compare_dtw_btn = QPushButton('计算dtw')
+        self.compare_corr_btn = QPushButton('corr')
+        self.compare_dtw_btn = QPushButton('dtw')
+        self.day_base_check = QCheckBox('按日计算dtw')
+        self.day_base_check.setChecked(True)
         self.interval_combo = QComboBox()
         for i in [1, 5, 10, 15, 30, 60]:
             self.interval_combo.addItem(f'{i} min', i)
@@ -717,6 +720,7 @@ class CorrelationMonitor(QWidget):
         btn_hbox = QHBoxLayout()
         btn_hbox.addWidget(self.compare_corr_btn, 2)
         btn_hbox.addWidget(self.compare_dtw_btn, 2)
+        btn_hbox.addWidget(self.day_base_check, 1)
         btn_hbox.addWidget(self.interval_combo, 1)
         # btn_hbox.addWidget(self.forward_num, 2)
         btn_hbox.addWidget(self.process_bar, 5)
@@ -768,7 +772,8 @@ class CorrelationMonitor(QWidget):
             QMessageBox.critical(self, 'DataFetcher', '数据未加载完毕！', QMessageBox.Ok)
             return
         import scipy.stats as st
-        target_data = self.target_chart_widget.datas
+        tcw = self.target_chart_widget
+        target_data = tcw.datas[tcw.datetime_from.dateTime().toPyDateTime():tcw.datetime_to.dateTime().toPyDateTime()]
         source_data = self.raw_data['HSI']
 
         apply_func_dict = {'datetime': 'last',
@@ -806,6 +811,11 @@ class CorrelationMonitor(QWidget):
         table.setHorizontalHeaderLabels(['datetime', 'corr', 'p'])
         count = len(self.data)
 
+        box = QMessageBox.question(self, '计算CORR', f'目标数据段为{target_data.datetime[0]}至{target_data.datetime[-1]}, 是否开始计算？')
+
+        if box != QMessageBox.Yes:
+            return
+
         corr_data = []
         for i in range(self.period, count, 10):
             data = (self.data.datetime[i], *corr(self.data.close.values[i - self.period:i]))
@@ -821,7 +831,11 @@ class CorrelationMonitor(QWidget):
             QMessageBox.critical(self, 'DataFetcher', '数据未加载完毕！', QMessageBox.Ok)
             return
         from tslearn.metrics import soft_dtw
-        target_data = self.target_chart_widget.datas
+        from tslearn.clustering import TimeSeriesScalerMeanVariance
+        from tslearn.utils import to_time_series_dataset
+
+        tcw = self.target_chart_widget
+        target_data = tcw.datas[tcw.datetime_from.dateTime().toPyDateTime():tcw.datetime_to.dateTime().toPyDateTime()]
         source_data = self.raw_data['HSI']
 
         apply_func_dict = {'datetime': 'last',
@@ -843,7 +857,11 @@ class CorrelationMonitor(QWidget):
         else:
             self.data = source_data
 
+        tsmv = TimeSeriesScalerMeanVariance()
         target_values = target_data.close.values
+        ts_target = to_time_series_dataset([target_values])
+        ts_target_mv = tsmv.fit_transform(ts_target)
+        t_f = ts_target_mv[0].flatten()
         self.process_bar.setValue(0)
 
         self.period = len(target_data)
@@ -856,10 +874,39 @@ class CorrelationMonitor(QWidget):
         table.setHorizontalHeaderLabels(['datetime', 'dtw'])
         count = len(self.data)
 
+        is_day_base = self.day_base_check.isChecked()
         dtw_data = []
-        for i in range(count - 1, self.period - 1, -self.period):
-            data = (self.data.datetime[i], soft_dtw(target_values, self.data.close.values[i - self.period:i]))
-            process_value = (i - self.period) * 100 // count
+        index = []
+        datas = []
+        start = target_data.datetime[0].time()
+        end = target_data.datetime[-1].time()
+        if is_day_base:
+            if not target_data.close.between_time('09:15', '16:30').count() == target_data.close.count():
+                QMessageBox.critical(self, '按日计算DTW', '目标数据未全处于09:15-16:30,请重新设置！', QMessageBox.Ok)
+                return
+            grouped = self.data.between_time(start, end).groupby(lambda s: s.date())
+            for d, df in grouped:
+                index.append(df.datetime[-1])
+                datas.append(df.close.values)
+        else:
+            for i in range(count - 1, self.period - 1, -self.period):
+                index.append(self.data.datetime[i])
+                datas.append(self.data.close.values[i - self.period:i])
+                # data = (self.data.datetime[i], soft_dtw(t_f, self.data.close.values[i - self.period:i]))
+
+        box = QMessageBox.question(self, f'{"按日" if is_day_base else ""}计算DTW', f'目标数据段为{target_data.datetime[0]}至{target_data.datetime[-1]}, 是否开始计算？')
+
+        if box != QMessageBox.Yes:
+            return
+
+        ts_src = to_time_series_dataset(datas)
+        ts_src_mv = tsmv.fit_transform(ts_src)
+
+        total_src_n = len(ts_src_mv)
+        for i, (t, s) in enumerate(zip(index, ts_src_mv)):
+            s_f = s.flatten()
+            data = (t, soft_dtw(t_f, s_f))
+            process_value = (i + 1) * 100 // total_src_n
             self.signal_process.emit(process_value)
             self.signal_new_dtw.emit(*data)
             dtw_data.append(data)
@@ -1006,7 +1053,7 @@ class CorrelationMonitor(QWidget):
         self.period = len(self.target_chart_widget.datas)
 
     def show_data_fetch_finished(self):
-        QMessageBox.information(self, 'DataFetcher', '数据加载完毕！', QMessageBox.Ok)
+        QMessageBox.information(self, 'DataFetcher', f'数据加载完毕！{self.his_start}至--', QMessageBox.Ok)
 
     def closeEvent(self, a0: QCloseEvent) -> None:
         self.target_chart_widget.closeEvent(a0)
