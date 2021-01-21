@@ -956,7 +956,10 @@ class CorrelationMonitor(QWidget):
 
     def show_chart(self, r, c):
         self._selected_row = r
-        _end = self.info_table.item(r, 0).text()
+        item = self.info_table.item(r, 0)
+        if not item:
+            return
+        _end = item.text()
 
         source_data = self.raw_data['HSI']
         forward = 1
