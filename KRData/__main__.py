@@ -241,7 +241,7 @@ def search_available_contract(exchange, sectype, expired, symbol):
         ib.close()
         contract_engine.stop()
 
-@click.command
+@click.command()
 @click.help_option('-h', '--help', help='更新A股数据')
 def update_a_stock():
     update()
