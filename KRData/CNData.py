@@ -177,7 +177,7 @@ class CNStock:
         def hfq(df):
             code = df.index[0][0]
             factor = hfq_factor.loc[code].asof(df['datetime']).values
-            factor = factor / factor[0]
+            # factor = factor / factor[0]
             df[['open', 'high', 'low', 'close']] = df[['open', 'high', 'low', 'close']].mul(factor)
 
             return df
@@ -196,7 +196,7 @@ class CNStock:
         def qfq(df):
             code = df.index[0][0]
             factor = qfq_factor.loc[code].asof(df['datetime']).values
-            factor = factor / factor[-1]
+            # factor = factor / factor[-1]
             df[['open', 'high', 'low', 'close']] = df[['open', 'high', 'low', 'close']].div(factor)
 
             return df
