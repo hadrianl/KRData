@@ -5,7 +5,8 @@
 # @File    : __main__
 import click
 from .IBTradeRecorder import save_ib_trade
-from .CNData import update
+from .CNData import update as update_cn
+from .HKData import update as update_hk
 import pandas as pd
 import datetime as dt
 import multiprocessing
@@ -244,7 +245,12 @@ def search_available_contract(exchange, sectype, expired, symbol):
 @click.command()
 @click.help_option('-h', '--help', help='更新A股数据')
 def update_a_stock():
-    update()
+    update_cn()
+
+@click.command()
+@click.help_option('-h', '--help', help='更新港股数据')
+def update_hk_stock():
+    update_hk()
 
 cli.add_command(save_ib_trade)
 cli.add_command(save_ctp_ticker)
@@ -256,3 +262,4 @@ cli.add_command(visualExecutions)
 cli.add_command(data_record)
 cli.add_command(search_available_contract)
 cli.add_command(update_a_stock)
+cli.add_command(update_hk_stock)

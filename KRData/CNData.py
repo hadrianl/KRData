@@ -215,7 +215,7 @@ def update(config=None):
 
     today = dt.date.today()
     today_weekday = today.isoweekday()
-    if today_weekday in [1, 7]:
+    if today_weekday in [6, 7]:
         print(f'{today} has no update!')
         return
 
@@ -282,7 +282,7 @@ def update(config=None):
             hfq_list = []
             qfq_list = []
 
-            last_day = (col_ohlcv.find_one({'code': info.code}, sort=[('datetime', -1)]) or {}).get('datetime', dt.datetime(1990, 1, 1)) + dt.timedelta(days=1)
+            last_day = (col_ohlcv.find_one({'code': info.code}, sort=[('datetime', -1)]) or {}).get('datetime', dt.datetime(1970, 1, 1)) + dt.timedelta(days=1)
             if last_day.date() >= today:
                 continue
 
