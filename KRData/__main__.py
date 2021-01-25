@@ -243,14 +243,16 @@ def search_available_contract(exchange, sectype, expired, symbol):
         contract_engine.stop()
 
 @click.command()
-@click.help_option('-h', '--help', help='更新A股数据')
-def update_a_stock():
-    update_cn()
-
-@click.command()
-@click.help_option('-h', '--help', help='更新港股数据')
-def update_hk_stock():
-    update_hk()
+@click.help_option('-h', '--help', help='更新股票数据')
+@click.option('--market', default='all', type=click.Choice(['all','cn', 'hk']), help='市场->["all", "cn", "hk"]')
+def update_stock(market):
+    if market == 'all':
+        update_cn()
+        update_hk()
+    elif market == 'cn':
+        update_cn()
+    elif market == 'hk':
+        update_hk()
 
 cli.add_command(save_ib_trade)
 cli.add_command(save_ctp_ticker)
@@ -261,5 +263,4 @@ cli.add_command(visualTrades)
 cli.add_command(visualExecutions)
 cli.add_command(data_record)
 cli.add_command(search_available_contract)
-cli.add_command(update_a_stock)
-cli.add_command(update_hk_stock)
+cli.add_command(update_stock)
