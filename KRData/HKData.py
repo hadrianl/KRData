@@ -716,24 +716,25 @@ def update(config=None):
 
 
             data = ak.stock_hk_daily(info.code)
-            hfq_factor = ak.stock_hk_daily(info.code, adjust='hfq-factor')
-            qfq_factor = ak.stock_hk_daily(info.code, adjust='qfq-factor')
-
-
             for d, v in data[last_day:].iterrows():
                 ohlcv_list.append({'datetime': d.to_pydatetime(), 'code': info.code, **v.to_dict()})
 
+            if ohlcv_list:
+                col_ohlcv.insert_many(ohlcv_list, ordered=False)
+
+
+            hfq_factor = ak.stock_hk_daily(info.code, adjust='hfq-factor')
             for d, r in hfq_factor.iterrows():
                 hfq_list.append({'datetime': d.to_pydatetime(), 'code': info.code, 'factor': float(r.hfq_factor)})
 
+            col_hfq.delete_many({'code': info.code})
+            col_hfq.insert_many(hfq_list)
+
+
+            qfq_factor = ak.stock_hk_daily(info.code, adjust='qfq-factor')
             for d, r in qfq_factor.iterrows():
                 qfq_list.append({'datetime': d.to_pydatetime(), 'code': info.code, 'factor': float(r.qfq_factor)})
 
-
-            if ohlcv_list:
-                col_ohlcv.insert_many(ohlcv_list, ordered=False)
-            col_hfq.delete_many({'code': info.code})
-            col_hfq.insert_many(hfq_list)
             col_qfq.delete_many({'code': info.code})
             col_qfq.insert_many(qfq_list)
 

@@ -286,31 +286,31 @@ def update(config=None):
             if last_day.date() >= today:
                 continue
 
-            if info.market in ['sh', 'sz']:
-                data = ak.stock_zh_a_daily(info.code)
-                hfq_factor = ak.stock_zh_a_daily(info.code, adjust='hfq-factor')
-                qfq_factor = ak.stock_zh_a_daily(info.code, adjust='qfq-factor')
-            elif info.market == 'kcb':
-                data = ak.stock_zh_kcb_daily(info.code)
-                hfq_factor = ak.stock_zh_kcb_daily(info.code, adjust='hfq-factor')
-                qfq_factor = ak.stock_zh_kcb_daily(info.code, adjust='qfq-factor')
-            else:
+            daily_func_name = {'sh': 'stock_zh_a_daily', 'sz': 'stock_zh_a_daily', 'kcb':'stock_zh_kcb_daily'}.get(info.market)
+            if not daily_func_name:
                 raise Exception("unknown market flag")
 
+            get_daily = getattr(ak, daily_func_name)
+            data = get_daily(info.code)
             for d, v in data[last_day:].iterrows():
                 ohlcv_list.append({'datetime': d.to_pydatetime(), 'code': info.code, **v.to_dict()})
 
+            if ohlcv_list:
+                col_ohlcv.insert_many(ohlcv_list, ordered=False)
+
+
+            hfq_factor = get_daily(info.code, adjust='hfq-factor')
             for d, r in hfq_factor.iterrows():
                 hfq_list.append({'datetime': d.to_pydatetime(), 'code': info.code, 'factor': float(r.hfq_factor)})
 
+            col_hfq.delete_many({'code': info.code})
+            col_hfq.insert_many(hfq_list)
+
+
+            qfq_factor = get_daily(info.code, adjust='qfq-factor')
             for d, r in qfq_factor.iterrows():
                 qfq_list.append({'datetime': d.to_pydatetime(), 'code': info.code, 'factor': float(r.qfq_factor)})
 
-
-            if ohlcv_list:
-                col_ohlcv.insert_many(ohlcv_list, ordered=False)
-            col_hfq.delete_many({'code': info.code})
-            col_hfq.insert_many(hfq_list)
             col_qfq.delete_many({'code': info.code})
             col_qfq.insert_many(qfq_list)
 
