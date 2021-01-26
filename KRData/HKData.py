@@ -475,6 +475,7 @@ class HKStock_Daily_OHLCV(Document):
             'collection': 'stock_ohlcv',
             'indexes': [
                 'code',
+                'datetime',
                 {
                     'fields': ('code', 'datetime'),
                     'unique': True
@@ -492,6 +493,7 @@ class HKStock_Daily_HFQ_Factor(Document):
             'collection': 'stock_hfq_factor',
             'indexes': [
                 'code',
+                'datetime',
                 {
                     'fields': ('code', 'datetime'),
                     'unique': True
@@ -509,6 +511,7 @@ class HKStock_Daily_QFQ_Factor(Document):
             'collection': 'stock_qfq_factor',
             'indexes': [
                 'code',
+                'datetime',
                 {
                     'fields': ('code', 'datetime'),
                     'unique': True
@@ -553,6 +556,10 @@ class HKStock:
         self._adjust = adjust
         connect(alias='HKStock', db='HKStock', host=config['host'], port=config['port'], username=config['user'],
                 password=config['password'], authentication_source='admin')
+
+    @property
+    def all_codes(self):
+        return self._MarketData.objects.distinct('code')
 
     def __getitem__(self, item: Union[str, slice, List]) -> QuerySet:
         if isinstance(item, str):
@@ -601,7 +608,7 @@ class HKStock:
 
     def to_df(self, query_set: QuerySet) -> pd.DataFrame:
         cols = ['code', 'datetime', 'open', 'high', 'low', 'close', 'volume']
-        data = pd.DataFrame(query_set.values_list(*cols), columns=cols)
+        data = pd.DataFrame(query_set.as_pymongo())[cols]
         data = data.set_index(['code', 'datetime'], drop=False)
 
         if not self._adjust:
