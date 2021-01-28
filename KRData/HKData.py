@@ -14,7 +14,6 @@ from mongoengine import Document, DateTimeField, FloatField, IntField, StringFie
 import pymongo as pmg
 from collections import OrderedDict
 from typing import Dict, List, Union, Tuple
-from functools import lru_cache
 import re
 
 class HKFuture(BaseData):
@@ -625,38 +624,51 @@ class HKStock:
     @staticmethod
     def _hfq(data):
         codes = data['code'].unique()
-        hfq_factor_qs = HKStock_Daily_HFQ_Factor.objects(code__in=codes)
-        hfq_col = ['datetime', 'code', 'factor']
-        hfq_factor = pd.DataFrame(hfq_factor_qs.values_list(*hfq_col), columns=hfq_col).set_index(['code', 'datetime']).sort_index(level=['code', 'datetime'])
+        _datetime = data['datetime'].sort_values()
+        start = _datetime[0].to_pydatetime()
+        end = _datetime[-1].to_pydatetime()
+        factor_qs = HKStock_Daily_HFQ_Factor.objects(code__in=codes, datetime__gte=start, datetime__lte=end)
+        col = ['datetime', 'code', 'factor', 'cash']
+        factor = pd.DataFrame(factor_qs.as_pymongo())[col].set_index(['code', 'datetime']).sort_index(level=['code', 'datetime'])
 
-        def hfq(df):
+        def fq(df):
             code = df.index[0][0]
-            factor = hfq_factor.loc[code].asof(df['datetime']).values
-            # factor = factor / factor[0]
-            df[['open', 'high', 'low', 'close']] = df[['open', 'high', 'low', 'close']].mul(factor)
+            if code not in factor.index.levels[0]:
+                return df
+
+            # ft = factor.loc[code].asof(df['datetime']).values
+            _factor = factor.loc[code].asof(df['datetime'])
+            ft = _factor['factor']
+            cash = _factor['cash']
+            df[['open', 'high', 'low', 'close']] = df[['open', 'high', 'low', 'close']].mul(ft, axis=0).add(cash, axis=0)
 
             return df
 
-        data = data.groupby(level='code').apply(hfq)
+        data = data.groupby(level='code').apply(fq)
 
         return data
 
     @staticmethod
     def _qfq(data):
         codes = data['code'].unique()
-        qfq_factor_qs = HKStock_Daily_QFQ_Factor.objects(code__in=codes)
-        qfq_col = ['datetime', 'code', 'factor']
-        qfq_factor = pd.DataFrame(qfq_factor_qs.values_list(*qfq_col), columns=qfq_col).set_index(['code', 'datetime']).sort_index(level=['code', 'datetime'])
+        _datetime = data['datetime'].sort_values()
+        start = _datetime[0].to_pydatetime()
+        end = _datetime[-1].to_pydatetime()
+        factor_qs = HKStock_Daily_QFQ_Factor.objects(code__in=codes, datetime__gte=start, datetime__lte=end)
+        col = ['datetime', 'code', 'factor']
+        factor = pd.DataFrame(factor_qs.as_pymongo())[col].set_index(['code', 'datetime']).sort_index(level=['code', 'datetime'])
 
-        def qfq(df):
+        def fq(df):
             code = df.index[0][0]
-            factor = qfq_factor.loc[code].asof(df['datetime']).values
-            # factor = factor / factor[-1]
-            df[['open', 'high', 'low', 'close']] = df[['open', 'high', 'low', 'close']].div(factor)
+            if code not in factor.index.levels[0]:
+                return df
+
+            ft = factor.loc[code].asof(df['datetime'])['factor']
+            df[['open', 'high', 'low', 'close']] = df[['open', 'high', 'low', 'close']].mul(ft, axis=0)
 
             return df
 
-        data = data.groupby(level='code').apply(qfq)
+        data = data.groupby(level='code').apply(fq)
 
         return data
 
